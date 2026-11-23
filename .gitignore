@@ -291,3 +291,8 @@ vendor/cv_model/**
 packaging/native-current.json
 native-release/
 packaging/native-app.icns
+
+# Test coverage data
+.coverage
+.coverage.*
+coverage.json
