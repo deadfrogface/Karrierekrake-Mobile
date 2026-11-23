@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import textwrap
 from typing import Callable
 
 import toga
@@ -16,6 +17,11 @@ DANGER_BG = "#f5d6d6"
 DANGER = "#b3261e"
 
 _language = "de"
+WRAP = 38  # characters per line on a phone screen; Toga labels do not wrap by themselves
+
+
+def wrap(value: str, width: int = WRAP) -> str:
+    return "\n".join(textwrap.fill(line, width) if line.strip() else "" for line in str(value).split("\n"))
 
 
 def set_language(language: str) -> None:
@@ -48,15 +54,27 @@ def title(text: str) -> toga.Label:
 
 
 def heading(text: str) -> toga.Label:
-    return toga.Label(text, style=Pack(font_size=15, font_weight="bold", color=NAVY, margin_top=8))
+    return toga.Label(wrap(text, 30), style=Pack(font_size=15, font_weight="bold", color=NAVY, margin_top=8))
 
 
 def text(value: str, *, muted: bool = False) -> toga.Label:
-    return toga.Label(value, style=Pack(color=MUTED if muted else NAVY))
+    return toga.Label(wrap(value), style=Pack(color=MUTED if muted else NAVY))
 
 
 def warning(value: str) -> toga.Label:
-    return toga.Label(value, style=Pack(background_color=DANGER_BG, color=DANGER, margin=8))
+    return toga.Label(wrap(value, WRAP - 2), style=Pack(background_color=DANGER_BG, color=DANGER, margin=8))
+
+
+def switch(label: str, **kwargs) -> toga.Switch:
+    return toga.Switch(wrap(label, WRAP - 6), **kwargs)
+
+
+def card(title_text: str, subtitle: str, on_press: Callable, *, action: str = "") -> toga.Box:
+    """A list entry: bold title, grey subtitle, and a full-width button to open it."""
+    return column(toga.Label(wrap(title_text), style=Pack(font_weight="bold", color=NAVY)),
+                  toga.Label(wrap(subtitle), style=Pack(color=MUTED)),
+                  toga.Button(action or t("Öffnen ›", "Open ›"), on_press=on_press, style=Pack(height=TOUCH, flex=1)),
+                  margin=8, gap=4)
 
 
 def button(label: str, on_press: Callable, *, primary: bool = False) -> toga.Button:

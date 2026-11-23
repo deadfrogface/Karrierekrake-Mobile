@@ -57,9 +57,8 @@ class JobsScreen:
             self.results.remove(child)
         for index, job in enumerate(self.jobs[:40]):
             place = job.city or job.postal_code or ""
-            label = f"{job.title}\n{job.company}{' · ' + place if place else ''}"
-            self.results.add(toga.Button(label, on_press=lambda w, i=index: self.open_job(i),
-                                         style=Pack(height=ui.TOUCH + 16, flex=1)))
+            self.results.add(ui.card(job.title, f"{job.company}{' · ' + place if place else ''}",
+                                     lambda w, i=index: self.open_job(i), action=t("Ansehen ›", "View ›")))
 
     def open_job(self, index: int) -> None:
         job = self.jobs[index]

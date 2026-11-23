@@ -33,13 +33,13 @@ class ApplicationsScreen:
         self.app = app
         self.services = services
         self.stack = ui.PageStack()
-        self.show_archive = toga.Switch(t("Archiv anzeigen", "Show archive"), on_change=self.refresh)
-        self.starred_only = toga.Switch(t("Nur markierte ★", "Starred only ★"), on_change=self.refresh)
+        self.show_archive = ui.switch(t("Archiv anzeigen", "Show archive"), on_change=self.refresh)
+        self.starred_only = ui.switch(t("Nur markierte ★", "Starred only ★"), on_change=self.refresh)
         self.list_box = toga.Box(style=Pack(direction="column", gap=6))
         self.count = ui.text("", muted=True)
         self.stack.show(ui.column(ui.title(t("Bewerbungen", "Applications")), self.show_archive, self.starred_only,
                                   self.count, self.list_box,
-                                  ui.button(t("Übersicht als Tabelle (CSV) speichern", "Save overview (CSV)"),
+                                  ui.button(t("Übersicht speichern (CSV)", "Save overview (CSV)"),
                                             self.export)), root=True)
         self.records: list = []
         self.refresh()
@@ -56,9 +56,8 @@ class ApplicationsScreen:
         for index, rec in enumerate(self.records):
             star = "★ " if rec.starred else ""
             archived = t(" · archiviert", " · archived") if rec.archived_at else ""
-            label = f"{star}{rec.company}\n{rec.position} · {status_text(rec.status)}{archived}"
-            self.list_box.add(toga.Button(label, on_press=lambda w, i=index: self.open(i),
-                                          style=Pack(height=ui.TOUCH + 16, flex=1)))
+            self.list_box.add(ui.card(f"{star}{rec.company}", f"{rec.position} · {status_text(rec.status)}{archived}",
+                                      lambda w, i=index: self.open(i)))
         self.count.text = t(f"{len(self.records)} Bewerbungen", f"{len(self.records)} applications")
 
     def open(self, index: int) -> None:

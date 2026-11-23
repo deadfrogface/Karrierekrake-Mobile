@@ -19,11 +19,10 @@ class SettingsScreen:
         self.provider = toga.Selection(items=[t("Keiner (ohne KI)", "None (no AI)")] + names, style=Pack(height=ui.TOUCH))
         self.key = toga.PasswordInput(placeholder=t("API-Schlüssel", "API key"), style=Pack(height=ui.TOUCH))
         self.model = toga.Selection(items=[], style=Pack(height=ui.TOUCH))
-        self.use_cover = toga.Switch(t("Für Anschreiben nutzen", "Use for cover letters"))
-        self.use_import = toga.Switch(t("Zum Einlesen des Lebenslaufs nutzen", "Use to read the CV"))
-        self.consent = toga.Switch(t("Ich bin einverstanden, dass dafür Daten an den Anbieter gehen.",
-                                     "I agree that data goes to the provider for this."))
-        self.popups = toga.Switch(t("Pop-up, wenn eine Firma antwortet", "Pop-up when a company replies"))
+        self.use_cover = ui.switch(t("Für Anschreiben nutzen", "Use for cover letters"))
+        self.use_import = ui.switch(t("Für Lebenslauf-Import", "For CV import"))
+        self.consent = ui.switch(t("Einverstanden", "I agree"))
+        self.popups = ui.switch(t("Pop-up bei Antworten", "Pop-up on replies"))
         self.archive_days = toga.NumberInput(min=0, max=365, step=1, style=Pack(height=ui.TOUCH, width=120))
         self.status = ui.text("", muted=True)
         self.stack.show(ui.column(
@@ -36,15 +35,20 @@ class SettingsScreen:
                          "ad go to that company's servers, usually abroad. The check for invented claims still runs "
                          "here on the phone.")),
             self.provider, self.key, ui.button(t("Modelle laden", "Load models"), self.load_models), self.model,
-            self.use_cover, self.use_import, self.consent,
+            self.use_cover, self.use_import,
+            ui.text(t("Ich bin einverstanden, dass für die gewählten Aufgaben Daten an den Anbieter gehen.",
+                      "I agree that data goes to the provider for the chosen tasks.")),
+            self.consent,
             ui.button(t("KI-Einstellungen speichern", "Save AI settings"), self.save_ai, primary=True),
             ui.heading(t("Bewerbungen", "Applications")), self.popups,
             ui.text(t("Ohne Aktivität archivieren nach (Tagen, 0 = nie)", "Archive without activity after (days, 0 = never)"),
                     muted=True), self.archive_days,
             ui.button(t("Speichern", "Save"), self.save_general),
             ui.heading(t("Gerät wechseln", "Change device")),
-            ui.button(t("Einstellungen und Profil exportieren", "Export settings and profile"), self.export_all),
-            ui.button(t("Einstellungen und Profil importieren …", "Import settings and profile …"), self.import_all),
+            ui.text(t("Überträgt Einstellungen, Profil und Kenntnisse auf ein anderes Gerät (auch zum Computer).",
+                      "Moves settings, profile and skills to another device (also to the computer)."), muted=True),
+            ui.button(t("Profil exportieren", "Export profile"), self.export_all),
+            ui.button(t("Profil importieren …", "Import profile …"), self.import_all),
             self.status), root=True)
         self.load()
 
