@@ -1,0 +1,48 @@
+Karrierekrake – Lizenz / License
+================================
+
+Copyright (c) 2026 [Name des Anbieters, von Damiano einzutragen]. Alle Rechte vorbehalten. All rights reserved.
+
+
+DEUTSCH
+
+1. Diese Software – Quellcode, Programmdateien, Dokumentation, Grafiken, Texte und Marken – ist
+   urheberrechtlich geschützt. Alle Rechte liegen ausschließlich beim oben genannten Rechteinhaber.
+
+2. Ohne vorherige schriftliche Zustimmung des Rechteinhabers ist es nicht gestattet, die Software ganz
+   oder teilweise zu vervielfältigen, zu verändern, zu bearbeiten, zu übersetzen, zu veröffentlichen, zu
+   verbreiten, zu verkaufen, zu vermieten, unterzulizenzieren oder auf andere Weise Dritten zugänglich zu
+   machen.
+
+3. Wer das ausgelieferte Programm erwirbt, darf es ausschließlich nach den beim Erwerb vereinbarten
+   Nutzungsbedingungen (Endnutzer-Lizenz) verwenden. Ein Recht am Quellcode wird damit nicht eingeräumt.
+
+4. Zwingende gesetzliche Rechte, insbesondere nach §§ 69d und 69e UrhG, bleiben unberührt.
+
+5. Komponenten Dritter, die mit dem Programm ausgeliefert werden, stehen unter ihren eigenen Lizenzen
+   (siehe NOTICE und THIRD_PARTY_NOTICES.txt im Programmpaket). Diese Lizenz schränkt die Rechte, die jene
+   Lizenzen gewähren, nicht ein. Insbesondere bleibt für Qt und PySide6 (LGPL-3.0) das Recht unberührt,
+   diese Bibliotheken gegen eine schnittstellenkompatible Fassung auszutauschen.
+
+
+ENGLISH
+
+1. This software – source code, program files, documentation, graphics, texts and trademarks – is
+   protected by copyright. All rights are held exclusively by the copyright holder named above.
+
+2. Without the copyright holder's prior written consent, you may not copy, modify, adapt, translate,
+   publish, distribute, sell, rent, sublicense or otherwise make the software available to third parties,
+   in whole or in part.
+
+3. A person who acquires the distributed program may use it only under the terms agreed at purchase
+   (end-user licence). No right to the source code is granted.
+
+4. Mandatory statutory rights, in particular under sections 69d and 69e of the German Copyright Act
+   (UrhG), remain unaffected.
+
+5. Third-party components distributed with the program are subject to their own licences (see NOTICE and
+   THIRD_PARTY_NOTICES.txt in the program package). This licence does not restrict the rights those licences
+   grant. In particular, the right to replace Qt and PySide6 (LGPL-3.0) with an interface-compatible
+   version remains unaffected.
+
+In case of doubt the German version prevails.

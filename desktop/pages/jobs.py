@@ -1,0 +1,948 @@
+"""Jobs — V2: compact result filters, explicit sort, ~60/40 list+detail."""
+
+from __future__ import annotations
+
+import webbrowser
+from datetime import datetime
+
+from PySide6.QtCore import Qt
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QFrame,
+    QHBoxLayout,
+    QHeaderView,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QScrollArea,
+    QSizePolicy,
+    QSplitter,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+from core.database import Database
+from core.models import JobStatus
+from core.text_normalize import clean_text, display_or_dash
+from desktop.design_system.a11y import set_accessible_name
+from desktop.design_system.flow_layout import FlowHost
+from desktop.design_system.polish import (
+    apply_button_icon,
+    footer_actions_layout,
+    polish_card,
+    polish_interactive,
+)
+from desktop.design_system.v2_chrome import EmptyStatePanel, PageHeader, SectionEditDrawer
+
+from desktop.widgets.job_card_delegate import CHIPS_ROLE, FIT_ROLE, JobCardDelegate, job_chips
+from core.matcher import percent_to_min_score
+from desktop.i18n import de_en, i18n, tr
+from desktop.services import ConfigService
+from desktop.status_labels import status_label
+from desktop.viewmodels.job_fit import build_job_fit_viewmodel
+from desktop.widgets.product_panels import JobFitPanel
+from desktop.widgets.wheel_guard import IntentionalWheelSpinBox
+
+
+def format_commute_label(job, *, with_duration: bool = True, home_status: str = "resolved") -> str:
+    """UI distance text: only BRouter Fahrstrecke, never Luftlinie kilometres.
+
+    Airline remains an invisible search prefilter (job.airline_km) and must not
+    appear here. Unresolved home skips radius claims.
+    """
+    del with_duration  # no drive-time claim without a duration source
+    remote = (getattr(job, "remote_type", "") or "").lower()
+    if remote == "remote":
+        return tr("jobs.commute_remote")
+    if home_status == "loading":
+        return ""
+    if home_status in {"ambiguous", "unknown", "missing", "unavailable"}:
+        return tr("jobs.distance_skipped")
+    err = (getattr(job, "distance_error", "") or "").strip()
+    src = (getattr(job, "distance_source", "") or "").strip()
+    dist = getattr(job, "distance_km", None)
+    if dist is not None and (src.startswith("brouter") or src == "brouter_v1"):
+        if float(dist) == 0:
+            return ""
+        km = f"{dist:.0f}" if float(dist) == int(float(dist)) else f"{float(dist):.1f}"
+        return tr("jobs.commute_road", km=km)
+    # No BRouter km → honest unknown. Never fall back to airline_km / haversine.
+    if not err:
+        err = tr("jobs.commute_road_unknown_generic")
+    return tr("jobs.commute_road_unknown", reason=err)
+
+
+def _parse_discovered(value: str | None) -> datetime:
+    raw = (value or "").strip()
+    if not raw:
+        return datetime.min
+    for fmt in ("%Y-%m-%dT%H:%M:%S%z", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%d %H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw.replace("Z", "+0000")[:26], fmt)
+        except ValueError:
+            continue
+    return datetime.min
+
+
+_WORK_MODEL_LABEL = {"remote": "Remote", "hybrid": "Hybrid", "onsite": "Vor Ort"}
+
+class JobsPage(QWidget):
+    COLS = (
+        "title",
+        "company",
+        "location",
+        "distance",
+        "remote",
+        "score",
+        "explanation",
+        "source",
+        "status",
+    )
+
+    def __init__(self, config_service: ConfigService, parent=None) -> None:
+        super().__init__(parent)
+        self.config_service = config_service
+        self._jobs = []
+        self._selected = None
+        self._last_pass_saw_loading = False
+        self._last_notice_status = ""
+        self._distance_order_passes = 0
+        self._distance_order_done = False
+
+        self.header = PageHeader()
+        self.page_title = self.header.title
+        self.page_subtitle = self.header.subtitle
+        self.count_label = QLabel()
+        self.count_label.setObjectName("PageSubtitle")
+
+        self.min_match = IntentionalWheelSpinBox()
+        self.min_match.setRange(0, 100)
+        self.max_dist = IntentionalWheelSpinBox()
+        self.max_dist.setRange(1, 500)
+        self.city = QLineEdit()
+        self.title = QLineEdit()
+        self.company = QLineEdit()
+        self.source = QLineEdit()
+        self.status = QComboBox()
+        self.status.addItem("", "")
+        for s in JobStatus:
+            self.status.addItem(s.value, s.value)
+        self.chk_remote = QCheckBox()
+        self.chk_hybrid = QCheckBox()
+        self.chk_onsite = QCheckBox()
+        # Dead control kept for compatibility — never surface in V2 (matrix HIDE).
+        self.age_days = IntentionalWheelSpinBox()
+        self.age_days.setRange(0, 90)
+        self.age_days.hide()
+
+        self.lbl_min_match = QLabel()
+        self.lbl_max_dist = QLabel()
+        self.lbl_city = QLabel()
+        self.lbl_title = QLabel()
+        self.lbl_company = QLabel()
+        self.lbl_source = QLabel()
+        self.lbl_status = QLabel()
+        self.lbl_sort = QLabel()
+        self.lbl_filters = QLabel()
+        self.lbl_filters.setObjectName("KkHint")
+
+        self.sort = QComboBox()
+        self.sort.addItem("", "match_desc")
+        self.sort.addItem("", "match_asc")
+        self.sort.addItem("", "distance_near")
+        self.sort.addItem("", "distance_far")
+        self.sort.addItem("", "newest")
+        self.sort.currentIndexChanged.connect(self._on_sort_changed)
+
+        # Compact primary filter row (result filters — not search parameters). It wraps
+        # instead of squeezing buttons below their text at 200 % scaling (T10.04).
+        self._primary_filters = FlowHost(h_spacing=8, v_spacing=6)
+        primary = self._primary_filters.flow()
+        for w in (
+            self.lbl_min_match,
+            self.min_match,
+            self.lbl_max_dist,
+            self.max_dist,
+            self.lbl_city,
+            self.city,
+            self.chk_remote,
+            self.chk_hybrid,
+            self.chk_onsite,
+        ):
+            primary.addWidget(w)
+        self.apply_btn = QPushButton()
+        self.apply_btn.setObjectName("PrimaryButton")
+        self.apply_btn.clicked.connect(self.refresh)
+        polish_interactive(self.apply_btn)
+        self.more_filters_btn = QPushButton()
+        self.more_filters_btn.setObjectName("SecondaryButton")
+        self.more_filters_btn.clicked.connect(self._open_more_filters)
+        self.search_intent_btn = QPushButton()
+        self.search_intent_btn.setObjectName("SecondaryButton")
+        self.search_intent_btn.clicked.connect(self.open_search_intent)
+        # Filter CTAs close the row; on narrow windows they wrap to the next line.
+        primary.addWidget(self.more_filters_btn)
+        primary.addWidget(self.apply_btn)
+
+        self.more_filters = QWidget()
+        more_form = QFormLayout(self.more_filters)
+        more_form.setContentsMargins(0, 4, 0, 0)
+        more_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.ExpandingFieldsGrow)
+        more_form.addRow(self.lbl_title, self.title)
+        more_form.addRow(self.lbl_company, self.company)
+        more_form.addRow(self.lbl_source, self.source)
+        more_form.addRow(self.lbl_status, self.status)
+        self._filter_drawer = SectionEditDrawer(parent=self)
+        # Host for drawer content when closed
+        self._filter_host = QWidget(self)
+        self._filter_host.hide()
+        QVBoxLayout(self._filter_host).addWidget(self.more_filters)
+
+        toolbar = QHBoxLayout()
+        toolbar.setSpacing(12)
+        toolbar.addWidget(self.count_label)
+        self._view_mode = "cards"
+        self.view_cards_btn = QPushButton(de_en("Karten", "Cards"))
+        self.view_table_btn = QPushButton(de_en("Tabelle", "Table"))
+        for button, mode in ((self.view_cards_btn, "cards"), (self.view_table_btn, "table")):
+            button.setCheckable(True)
+            button.clicked.connect(lambda _=False, m=mode: self._set_view(m))
+            toolbar.addWidget(button)
+        self.view_cards_btn.setChecked(True)
+        toolbar.addStretch()
+        self.saved_filters = QComboBox()
+        self.saved_filters.setMinimumWidth(170)
+        self.saved_filters.setToolTip(de_en("Gespeicherte Filter", "Saved filters"))
+        self.saved_filters.activated.connect(self._apply_saved_filter)
+        self.save_filter_btn = QPushButton(de_en("Filter speichern …", "Save filter …"))
+        self.save_filter_btn.clicked.connect(self._save_filter)
+        self.delete_filter_btn = QPushButton(de_en("Löschen", "Delete"))
+        self.delete_filter_btn.clicked.connect(self._delete_filter)
+        for widget in (self.saved_filters, self.save_filter_btn, self.delete_filter_btn):
+            toolbar.addWidget(widget)
+        self._reload_saved_filters()
+        self._style_toolbar_buttons()
+        toolbar.addWidget(self.lbl_sort)
+        toolbar.addWidget(self.sort)
+
+        self.table = QTableWidget(0, len(self.COLS))
+        self.table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+        self.table.setSortingEnabled(False)
+        self.table.setAlternatingRowColors(True)
+        self.table.itemSelectionChanged.connect(self._on_selection)
+        self.table.doubleClicked.connect(self.open_selected)
+        self.table.hide()  # shown by the "Tabelle" view
+        self.table.verticalHeader().hide()
+        self._style_toolbar_buttons()
+        header = self.table.horizontalHeader()
+        header.setStretchLastSection(True)
+        for col in (3, 4, 5, 7, 8):
+            header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+        header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(1, QHeaderView.ResizeMode.Stretch)
+        header.setSectionResizeMode(6, QHeaderView.ResizeMode.Stretch)
+
+        self.job_list = QListWidget()
+        self.job_list.setSpacing(2)
+        self.job_list.setItemDelegate(JobCardDelegate(self.job_list))
+        self.job_list.setMouseTracking(True)
+        self.job_list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.job_list.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        self.job_list.currentRowChanged.connect(self._on_card_row)
+
+        self.empty = EmptyStatePanel()
+        self.empty.setVisible(False)
+        self.empty.action_btn.hide()
+        self.empty_widen_btn = QPushButton()
+        self.empty_widen_btn.setObjectName("SecondaryButton")
+        self.empty_widen_btn.clicked.connect(self._widen_radius)
+        self.empty_filters_btn = QPushButton()
+        self.empty_filters_btn.setObjectName("PrimaryButton")
+        self.empty_filters_btn.clicked.connect(self._open_more_filters)
+        self.empty_intent_btn = QPushButton()
+        self.empty_intent_btn.setObjectName("SecondaryButton")
+        self.empty_intent_btn.clicked.connect(self._open_search_intent)
+        # Wraps in the narrow empty-state card instead of cutting button text (T10.04).
+        self._empty_actions = FlowHost(h_spacing=8, v_spacing=6)
+        for button in (self.empty_widen_btn, self.empty_filters_btn, self.empty_intent_btn):
+            self._empty_actions.flow().addWidget(button)
+        self.empty.layout().addWidget(self._empty_actions)
+
+        list_wrap = QVBoxLayout()
+        list_wrap.setContentsMargins(0, 0, 0, 0)
+        list_host = QWidget()
+        list_host.setLayout(list_wrap)
+        list_wrap.addWidget(self.job_list)
+        list_wrap.addWidget(self.table)
+        list_wrap.addWidget(self.empty)
+
+        self.detail = QFrame()
+        self.detail.setObjectName("DetailPanel")
+        # Texts scroll; the two action buttons stay pinned below them, so a short window can never
+        # draw the buttons over the explanation.
+        outer_layout = QVBoxLayout(self.detail)
+        outer_layout.setContentsMargins(14, 12, 14, 12)
+        outer_layout.setSpacing(8)
+        self.detail_scroll = QScrollArea()
+        self.detail_scroll.setWidgetResizable(True)
+        self.detail_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.detail_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        detail_content = QWidget()
+        detail_layout = QVBoxLayout(detail_content)
+        detail_layout.setContentsMargins(0, 0, 6, 0)
+        detail_layout.setSpacing(10)
+        self.detail_scroll.setWidget(detail_content)
+        outer_layout.addWidget(self.detail_scroll, 1)
+        self.detail_title = QLabel()
+        self.detail_title.setObjectName("NextActionTitle")
+        self.detail_title.setWordWrap(True)
+        self.detail_meta = QLabel()
+        self.detail_meta.setObjectName("PageSubtitle")
+        self.detail_meta.setWordWrap(True)
+        self.detail_status = QLabel()
+        self.fit_panel = JobFitPanel()
+        self.detail_body = QTextEdit()
+        self.detail_body.setReadOnly(True)
+        self.detail_body.setMinimumHeight(200)
+        self.detail_prepare = QPushButton()
+        self.detail_prepare.setObjectName("PrimaryButton")
+        self.detail_prepare.clicked.connect(self.prepare_application)
+        polish_interactive(self.detail_prepare)
+        self.detail_open = QPushButton()
+        self.detail_open.setObjectName("SecondaryButton")
+        for button in (self.detail_open, self.detail_prepare):
+            button.setMinimumHeight(40)
+            button.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Fixed)
+        self.detail_open.clicked.connect(self.open_selected)
+        dbtns = footer_actions_layout(self.detail_open, self.detail_prepare)
+        detail_layout.addWidget(self.detail_title)
+        detail_layout.addWidget(self.detail_meta)
+        detail_layout.addWidget(self.detail_status)
+        detail_layout.addWidget(self.fit_panel)
+        detail_layout.addWidget(self.detail_body, 1)
+        outer_layout.addLayout(dbtns)
+
+        splitter = self._splitter = QSplitter()
+        splitter.setOrientation(Qt.Orientation.Horizontal)
+        splitter.addWidget(list_host)
+        splitter.addWidget(self.detail)
+        # ~60/40
+        splitter.setStretchFactor(0, 3)
+        splitter.setStretchFactor(1, 2)
+        splitter.setSizes([600, 400])
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(8, 8, 8, 8)
+        layout.setSpacing(10)
+        header_row = QHBoxLayout()
+        header_row.addWidget(self.header, 1)
+        header_row.addWidget(self.search_intent_btn)
+        layout.addLayout(header_row)
+        layout.addWidget(self.lbl_filters)
+        layout.addWidget(self._primary_filters)
+        layout.addLayout(toolbar)
+        layout.addWidget(splitter, 1)
+
+        polish_card(self.detail)
+
+        self._clear_detail()
+        self.retranslate_ui()
+
+    def _open_more_filters(self) -> None:
+        self.more_filters.setParent(None)
+        self._filter_drawer.set_texts(
+            title=tr("jobs.more_filters"),
+            save=tr("btn.filter"),
+            cancel=tr("btn.cancel"),
+        )
+        result = self._filter_drawer.present(self.more_filters)
+        self._filter_drawer.take_content()
+        self._filter_host.layout().addWidget(self.more_filters)
+        if result == SectionEditDrawer.DialogCode.Accepted:
+            self.refresh()
+
+    def _widen_radius(self) -> None:
+        self.max_dist.setValue(min(500, int(self.max_dist.value()) + 5))
+        self.refresh()
+
+    def _open_search_intent(self) -> None:
+        parent = self.window()
+        if parent is not None and hasattr(parent, "open_search_intent"):
+            parent.open_search_intent()  # type: ignore[attr-defined]
+            return
+        if parent is not None and hasattr(parent, "navigate_to"):
+            parent.navigate_to("nav.search")  # type: ignore[attr-defined]
+
+    def _toggle_more_filters(self, checked: bool) -> None:
+        # Compat for older callers — open drawer instead of inline expand.
+        if checked:
+            self._open_more_filters()
+        self.more_filters_btn.setChecked(False)
+
+    def _style_toolbar_buttons(self) -> None:
+        """Small buttons for the view switch and the saved filters; the big action buttons are for actions."""
+        from desktop.design_system.tokens import tokens_for_theme
+
+        app = QApplication.instance()
+        theme = app.property("kk_palette_theme") if app is not None else None
+        c = tokens_for_theme("dark" if theme == "dark" else "light").colors
+        qss = (f"QPushButton{{background:{c.surface};color:{c.text};border:1px solid {c.border};border-radius:6px;"
+               f"padding:4px 12px;min-height:0;}}"
+               f"QPushButton:hover{{border-color:{c.primary};}}"
+               f"QPushButton:checked{{background:{c.primary};color:#ffffff;border-color:{c.primary};}}"
+               f"QPushButton:disabled{{color:{c.muted};}}")
+        for button in (self.view_cards_btn, self.view_table_btn, self.save_filter_btn, self.delete_filter_btn):
+            button.setStyleSheet(qss)
+            button.setCursor(Qt.CursorShape.PointingHandCursor)
+            button.setMinimumWidth(button.fontMetrics().horizontalAdvance(button.text()) + 40)  # never clip the label
+        if hasattr(self, "table"):
+          self.table.setStyleSheet(
+            f"QTableWidget::item:selected{{background:{c.primary};color:#ffffff;}}"
+            f"QTableWidget::item:selected:!active{{background:{c.primary};color:#ffffff;}}"
+            f"QTableWidget::item:hover{{background:rgba(20,184,166,0.14);}}"
+            f"QTableWidget::item:focus{{outline:none;border:none;}} QTableWidget{{outline:0;}}")
+
+    # ---- view switch and saved filters ------------------------------------------------------------
+    def _apply_view_visibility(self, empty: bool) -> None:
+        self.job_list.setVisible(not empty and self._view_mode == "cards")
+        self.table.setVisible(not empty and self._view_mode == "table")
+
+    def _set_view(self, mode: str) -> None:
+        self._view_mode = mode
+        self.view_cards_btn.setChecked(mode == "cards")
+        self.view_table_btn.setChecked(mode == "table")
+        self._apply_view_visibility(self.empty.isVisible())
+        if mode == "cards":
+            total = max(900, self._splitter.width())
+            self._splitter.setSizes([int(total * 0.6), int(total * 0.4)])
+        if mode == "table":
+            # Dense view: title, company, place, work model, fit, source. Route text and the reason stay in the inspector.
+            header = self.table.horizontalHeader()
+            for col in (3, 6, 7, 8):  # route, reason, source, status: in the inspector and on the cards
+                self.table.setColumnHidden(col, True)
+            header.setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            for col in (2, 4, 5):
+                header.setSectionResizeMode(col, QHeaderView.ResizeMode.ResizeToContents)
+            header.setSectionResizeMode(1, QHeaderView.ResizeMode.Interactive)  # long company names elide, they do not push
+            self.table.setColumnWidth(1, 180)
+            total = max(900, self._splitter.width())
+            self._splitter.setSizes([int(total * 0.66), int(total * 0.34)])  # the table needs the width, the inspector less
+            header.setStretchLastSection(False)
+            self.table.setWordWrap(False)
+            self.table.setTextElideMode(Qt.TextElideMode.ElideRight)
+
+    _FILTER_FIELDS = ("min_match", "max_dist", "city", "chk_remote", "chk_hybrid", "chk_onsite",
+                      "title", "company", "source")
+
+    def _filter_state(self) -> dict:
+        state = {"min_match": self.min_match.value(), "max_dist": self.max_dist.value(), "city": self.city.text(),
+                 "chk_remote": self.chk_remote.isChecked(), "chk_hybrid": self.chk_hybrid.isChecked(),
+                 "chk_onsite": self.chk_onsite.isChecked(), "title": self.title.text(),
+                 "company": self.company.text(), "source": self.source.text(),
+                 "status": str(self.status.currentData() or "")}
+        return state
+
+    def _apply_filter_state(self, state: dict) -> None:
+        self.min_match.setValue(int(state.get("min_match", self.min_match.value())))
+        self.max_dist.setValue(int(state.get("max_dist", self.max_dist.value())))
+        self.city.setText(str(state.get("city", "")))
+        self.chk_remote.setChecked(bool(state.get("chk_remote")))
+        self.chk_hybrid.setChecked(bool(state.get("chk_hybrid")))
+        self.chk_onsite.setChecked(bool(state.get("chk_onsite")))
+        self.title.setText(str(state.get("title", "")))
+        self.company.setText(str(state.get("company", "")))
+        self.source.setText(str(state.get("source", "")))
+        index = self.status.findData(str(state.get("status", "")))
+        self.status.setCurrentIndex(max(0, index))
+        self.apply_filter_pass(preserve_view=False)
+
+    def _stored_filters(self) -> dict:
+        try:
+            filters = self.config_service.load_meta().get("job_filters")
+            return dict(filters) if isinstance(filters, dict) else {}
+        except Exception:  # noqa: BLE001 - saved filters are a convenience
+            return {}
+
+    def _reload_saved_filters(self, select: str = "") -> None:
+        self.saved_filters.blockSignals(True)
+        self.saved_filters.clear()
+        self.saved_filters.addItem(de_en("Gespeicherte Filter …", "Saved filters …"), "")
+        for name in sorted(self._stored_filters()):
+            self.saved_filters.addItem(name, name)
+        index = self.saved_filters.findData(select) if select else 0
+        self.saved_filters.setCurrentIndex(max(0, index))
+        self.delete_filter_btn.setEnabled(self.saved_filters.count() > 1)
+        self.saved_filters.blockSignals(False)
+
+    def _apply_saved_filter(self, _index: int = 0) -> None:
+        name = str(self.saved_filters.currentData() or "")
+        state = self._stored_filters().get(name)
+        if name and isinstance(state, dict):
+            self._apply_filter_state(state)
+
+    def _save_filter(self) -> None:
+        from PySide6.QtWidgets import QInputDialog
+
+        name, ok = QInputDialog.getText(self, de_en("Filter speichern", "Save filter"),
+                                            de_en("Name für diesen Filter:", "Name for this filter:"))
+        name = name.strip()
+        if not ok or not name:
+            return
+        meta = self.config_service.load_meta()
+        filters = dict(meta.get("job_filters") or {})
+        filters[name[:40]] = self._filter_state()
+        meta["job_filters"] = filters
+        self.config_service.save_meta(meta)
+        self._reload_saved_filters(name[:40])
+
+    def _delete_filter(self) -> None:
+        name = str(self.saved_filters.currentData() or "")
+        if not name:
+            return
+        meta = self.config_service.load_meta()
+        filters = dict(meta.get("job_filters") or {})
+        filters.pop(name, None)
+        meta["job_filters"] = filters
+        self.config_service.save_meta(meta)
+        self._reload_saved_filters()
+
+    def _on_card_row(self, row: int) -> None:
+        if row < 0:
+            return
+        self.table.blockSignals(True)
+        self.table.selectRow(row)
+        self.table.blockSignals(False)
+        self._on_selection()
+
+    def _on_sort_changed(self, _index: int = 0) -> None:
+        if not self._jobs:
+            return
+        self._jobs = self._sorted_jobs(self._jobs)
+        self._populate_table(self._jobs)
+
+    def _sort_key(self) -> str:
+        return str(self.sort.currentData() or "match_desc")
+
+    def _sorted_jobs(self, jobs: list) -> list:
+        key = self._sort_key()
+        if key == "match_asc":
+            return sorted(jobs, key=lambda j: int(j.match_score or 0))
+        if key in {"distance_near", "distance_far"} and self._last_notice_status == "loading":
+            return list(jobs)
+        if key == "distance_near":
+            return sorted(
+                jobs,
+                key=lambda j: (
+                    j.distance_km is None,
+                    float(j.distance_km) if j.distance_km is not None else 0.0,
+                ),
+            )
+        if key == "distance_far":
+            return sorted(
+                jobs,
+                key=lambda j: (
+                    j.distance_km is None,
+                    -(float(j.distance_km) if j.distance_km is not None else 0.0),
+                ),
+            )
+        if key == "newest":
+            return sorted(
+                jobs,
+                key=lambda j: _parse_discovered(getattr(j, "discovered_at", None)),
+                reverse=True,
+            )
+        # match_desc (default)
+        return sorted(jobs, key=lambda j: int(j.match_score or 0), reverse=True)
+
+    def retranslate_ui(self) -> None:
+        self.header.set_texts(tr("jobs.page_title"), tr("jobs.page_subtitle"))
+        self.lbl_filters.setText(tr("jobs.section_result_filters"))
+        self.lbl_min_match.setText(tr("jobs.min_match"))
+        self.lbl_max_dist.setText(tr("jobs.max_km"))
+        self.lbl_city.setText(tr("jobs.city"))
+        self.lbl_title.setText(tr("jobs.title"))
+        self.lbl_company.setText(tr("jobs.company"))
+        self.lbl_source.setText(tr("jobs.source"))
+        self.lbl_status.setText(tr("jobs.status"))
+        self.lbl_sort.setText(tr("jobs.sort_label"))
+        self.chk_remote.setText(tr("remote"))
+        self.chk_hybrid.setText(tr("hybrid"))
+        self.chk_onsite.setText(tr("onsite"))
+        self.apply_btn.setText(tr("btn.filter"))
+        apply_button_icon(self.apply_btn, "filter", color="#ffffff")
+        self.more_filters_btn.setText(tr("jobs.more_filters"))
+        self.search_intent_btn.setText(tr("search.settings"))
+        set_accessible_name(self.search_intent_btn, tr("search.settings"))
+        self.detail_prepare.setText(tr("btn.prepare_application"))
+        apply_button_icon(self.detail_prepare, "apply", color="#ffffff")
+        self.detail_open.setText(tr("btn.open_job"))
+        self.empty.set_texts(tr("jobs.empty_title"), tr("jobs.empty_body"))
+        self.empty.action_btn.hide()
+        self.empty_widen_btn.setText(tr("jobs.empty_widen"))
+        self.empty_filters_btn.setText(tr("jobs.empty_adjust_filters"))
+        self.empty_intent_btn.setText(tr("jobs.empty_search_intent"))
+        self.status.setItemText(0, tr("jobs.all"))
+        for i in range(1, self.status.count()):
+            raw = self.status.itemData(i)
+            self.status.setItemText(i, status_label(str(raw)))
+        sort_labels = {
+            "match_desc": tr("jobs.sort_match_desc"),
+            "match_asc": tr("jobs.sort_match_asc"),
+            "distance_near": tr("jobs.sort_distance_near"),
+            "distance_far": tr("jobs.sort_distance_far"),
+            "newest": tr("jobs.sort_newest"),
+        }
+        for i in range(self.sort.count()):
+            key = str(self.sort.itemData(i))
+            self.sort.setItemText(i, sort_labels.get(key, key))
+        self.table.setHorizontalHeaderLabels(
+            [
+                tr("col.title"),
+                tr("col.company"),
+                tr("col.city"),
+                tr("col.distance"),
+                tr("col.remote"),
+                tr("col.fit"),
+                tr("col.explanation"),
+                tr("col.source"),
+                tr("col.status"),
+            ]
+        )
+        if self._selected is None:
+            self._clear_detail()
+
+    def _clear_detail(self) -> None:
+        self.detail_title.setText(tr("jobs.detail_empty_title"))
+        self.detail_meta.setText(tr("jobs.detail_empty_body"))
+        self.detail_status.clear()
+        self.fit_panel.clear()
+        self.detail_body.setPlainText("")
+        self.detail_prepare.setEnabled(False)
+        self.detail_open.setEnabled(False)
+
+    def _job_for_row(self, row: int):
+        if row < 0:
+            return None
+        item = self.table.item(row, 0)
+        if not item:
+            return None
+        job_id = item.data(Qt.ItemDataRole.UserRole)
+        if job_id:
+            return next((j for j in self._jobs if j.id == job_id), None)
+        title = clean_text(item.text())
+        company_item = self.table.item(row, 1)
+        company = clean_text(company_item.text() if company_item else "")
+        return next(
+            (j for j in self._jobs if clean_text(j.title) == title and clean_text(j.company) == company),
+            None,
+        )
+
+    def _on_selection(self) -> None:
+        row = self.table.currentRow()
+        job = self._job_for_row(row)
+        self._selected = job
+        if job is None:
+            self._clear_detail()
+            return
+        self.detail_title.setText(display_or_dash(job.title))
+        dist = format_commute_label(job, with_duration=True, home_status=self._home_status())
+        known_route = job.distance_km is not None or (job.remote_type or "") == "remote" or self._home_status() != "resolved"
+        facts = [c for c in job_chips(job)]
+        if known_route and dist:
+            facts.append(dist)
+        if clean_text(job.salary_text) and clean_text(job.salary_text).lower() not in {"nan", "none", "null", "—"}:
+            facts.append(clean_text(job.salary_text))
+        self.detail_meta.setText(
+            f"{display_or_dash(job.company)} · {display_or_dash(job.city)}" + chr(10) + " · ".join(facts)
+        )
+        self.detail_status.setText(f"{tr('jobs.status')}: {status_label(job.status)}")
+        cfg = self.config_service.load()
+        fit = build_job_fit_viewmodel(job, cfg, home_notice=self._home_notice())
+        self.fit_panel.bind(fit)
+        body = clean_text(job.description)
+        chunks: list[str] = []
+        lines = fit.primary_lines(limit=12, localize=i18n.language == "de")
+        if lines:
+            chunks.append(f"{tr('jobs.fit_detail')}:\n" + "\n".join(lines))
+        if body:
+            chunks.append(body[:4000])
+        self.detail_body.setPlainText("\n\n".join(chunks) if chunks else tr("jobs.no_description"))
+        self.detail_prepare.setEnabled(True)
+        self.detail_open.setEnabled(True)
+
+    def _populate_table(self, jobs: list, *, preserve_view: bool = False) -> None:
+        selected_id = None
+        list_scroll = 0
+        table_scroll = 0
+        if preserve_view:
+            current = self.job_list.currentItem()
+            if current is not None:
+                selected_id = current.data(Qt.ItemDataRole.UserRole)
+            elif self._selected is not None:
+                selected_id = getattr(self._selected, "id", None)
+            list_scroll = self.job_list.verticalScrollBar().value()
+            table_scroll = self.table.verticalScrollBar().value()
+        self.table.setRowCount(0)
+        self.job_list.clear()
+        cfg = self.config_service.load()
+        _fit_i18n = {
+            "sehr_passend": tr("fit.sehr_passend"),
+            "passend": tr("fit.passend"),
+            "teilweise_passend": tr("fit.teilweise_passend"),
+            "nicht_passend": tr("fit.nicht_passend"),
+            "unbekannt": tr("fit.unbekannt"),
+        }
+        home_status = self._home_status()
+        home_notice = self._home_notice()
+        for job in jobs:
+            row = self.table.rowCount()
+            self.table.insertRow(row)
+            dist = format_commute_label(job, with_duration=False, home_status=home_status)
+            fit = build_job_fit_viewmodel(job, cfg, home_notice=home_notice)
+            fit_label = _fit_i18n.get(fit.headline_key, tr("fit.unbekannt"))
+            reason = " · ".join(fit.primary_lines(limit=2, localize=i18n.language == "de")) or display_or_dash(job.match_explanation())
+            values = [
+                display_or_dash(job.title),
+                display_or_dash(job.company),
+                display_or_dash(job.city),
+                dist if (job.distance_km is not None or (job.remote_type or "") == "remote"
+                         or home_status != "resolved") else "",
+                _WORK_MODEL_LABEL.get((job.remote_type or "").lower(), display_or_dash(job.remote_type)),
+                fit_label,
+                reason,
+                display_or_dash(job.source),
+                status_label(job.status),
+            ]
+            for col, value in enumerate(values):
+                if str(value).strip().lower() in {"nan", "none", "null"}:
+                    value = "—"
+                item = QTableWidgetItem(value)
+                if col == 0:
+                    item.setData(Qt.ItemDataRole.UserRole, job.id)
+                if col == 5:
+                    item.setData(Qt.ItemDataRole.UserRole + 1, int(job.match_score or 0))
+                self.table.setItem(row, col, item)
+            # Demo card row (compact)
+            dist_txt = format_commute_label(job, with_duration=True, home_status=home_status)
+            place = display_or_dash(job.city)
+            # An unknown route is explained in the detail view; repeating it on every card only crowds the list.
+            if dist_txt and (job.distance_km is not None or (job.remote_type or "") == "remote"
+                             or home_status != "resolved"):
+                place = f"{place} ({dist_txt})"
+            card = (
+                f"{display_or_dash(job.title)}\n"
+                f"{display_or_dash(job.company)} · {place}\n"
+                f"{fit_label} — {reason}"
+            )
+            list_item = QListWidgetItem(card)
+            list_item.setData(Qt.ItemDataRole.UserRole, job.id)
+            list_item.setData(FIT_ROLE, fit.headline_key)
+            list_item.setData(CHIPS_ROLE, job_chips(job))
+            self.job_list.addItem(list_item)
+        empty = len(jobs) == 0
+        self._apply_view_visibility(empty)
+        self.empty.setVisible(empty)
+        self.count_label.setText(tr("jobs.count", n=len(jobs)))
+        if empty:
+            self._clear_detail()
+        elif preserve_view:
+            restored = False
+            if selected_id:
+                for row in range(self.job_list.count()):
+                    item = self.job_list.item(row)
+                    if item is not None and item.data(Qt.ItemDataRole.UserRole) == selected_id:
+                        self.job_list.setCurrentRow(row)
+                        self.table.selectRow(row)
+                        restored = True
+                        break
+            if not restored and self.job_list.count():
+                self.job_list.setCurrentRow(0)
+            self.job_list.verticalScrollBar().setValue(list_scroll)
+            self.table.verticalScrollBar().setValue(table_scroll)
+        elif self.job_list.count():
+            self.job_list.setCurrentRow(0)
+
+    def _home_notice(self):
+        from core.location import home_location_notice
+
+        cfg = self.config_service.load()
+        return home_location_notice(cfg.profile.location, cfg)
+
+    def _home_status(self) -> str:
+        return self._home_notice().status
+
+    def refresh(self) -> None:
+        self.apply_filter_pass(preserve_view=False)
+
+    def apply_filter_pass(self, *, preserve_view: bool = False) -> None:
+        """Reload the job list. ``preserve_view`` keeps scroll position and selection."""
+        cfg = self.config_service.load()
+        if not hasattr(self, "_match_init"):  # the default applies once; 0 is a valid choice ("show everything")
+            self._match_init = True
+            self.min_match.setValue(self.min_match.value() or int(cfg.settings.minimum_match_for_dashboard))
+        if self.max_dist.value() == 1 and not hasattr(self, "_dist_init"):
+            self.max_dist.setValue(int(cfg.profile.location.max_distance_km))
+            self._dist_init = True
+        db = Database(cfg.db_path)
+        try:
+            from core.job_repair import reclassify_remote_jobs
+
+            reclassify_remote_jobs(db)
+        except Exception:  # noqa: BLE001 - a repair must never stop the list from loading
+            pass
+        notice = self._home_notice()
+        self._last_notice_status = notice.status
+        # Unresolved home: do not drop jobs for a missing/stale radius.
+        distance_cap = None if notice.status != "resolved" else float(self.max_dist.value())
+        remote_types = []
+        if self.chk_remote.isChecked():
+            remote_types.append("remote")
+        if self.chk_hybrid.isChecked():
+            remote_types.append("hybrid")
+        if self.chk_onsite.isChecked():
+            remote_types.append("onsite")
+        status_val = self.status.currentData()
+        jobs = db.list_jobs(
+            min_match=percent_to_min_score(self.min_match.value()),
+            max_distance=distance_cap,
+            statuses=[status_val] if status_val else None,
+            hide_applied=cfg.settings.hide_already_applied,
+            hide_duplicates=cfg.settings.hide_duplicates,
+            remote_types=remote_types or None,
+            company_query=self.company.text().strip() or None,
+            title_query=self.title.text().strip() or None,
+            city_query=self.city.text().strip() or None,
+            source=self.source.text().strip() or None,
+            limit=500,
+            include_unknown_distance=notice.status == "resolved",
+        )
+        self._fill_pending_distances(jobs, notice, cfg)
+        if distance_cap is not None:
+            jobs = [job for job in jobs if self._job_within_cap(job, distance_cap)]
+            if not self._distance_order_done:
+                self._distance_order_done = True
+                self._distance_order_passes += 1
+        self._jobs = self._sorted_jobs(jobs)
+        self._populate_table(self._jobs, preserve_view=preserve_view)
+
+    def _job_within_cap(self, job, cap: float) -> bool:
+        if (getattr(job, "remote_type", "") or "") == "remote":
+            return True
+        dist = getattr(job, "distance_km", None)
+        if dist is None:
+            dist = getattr(job, "airline_km", None)
+        return dist is not None and float(dist) <= cap
+
+    def _fill_pending_distances(self, jobs, notice, cfg) -> None:
+        """Resolve workplaces that still have no distance. Loading stays a flag.
+
+        Great-circle kilometres land on ``airline_km`` only. ``distance_km``
+        stays the BRouter Fahrstrecke and is not invented here.
+        """
+        from core.geo_resolve import haversine_km, place_from_job_like, resolve_place
+        from core.location import home_resolve_params
+
+        self._last_pass_saw_loading = False
+        border, home_cc = home_resolve_params(cfg.profile.location, cfg)
+        home_coords = None
+        if (
+            notice.status == "resolved"
+            and notice.latitude is not None
+            and notice.longitude is not None
+        ):
+            home_coords = (float(notice.latitude), float(notice.longitude))
+        for job in jobs:
+            if (getattr(job, "remote_type", "") or "") == "remote":
+                continue
+            if getattr(job, "distance_km", None) is not None or getattr(job, "airline_km", None) is not None:
+                continue
+            lat = getattr(job, "latitude", None)
+            lon = getattr(job, "longitude", None)
+            if home_coords is not None and lat is not None and lon is not None:
+                try:
+                    job.airline_km = haversine_km(home_coords[0], home_coords[1], float(lat), float(lon))
+                except ValueError:
+                    job.airline_km = None
+                continue
+            place = place_from_job_like(job)
+            if not (place.postal_code or place.city or place.address):
+                continue
+            resolution = resolve_place(
+                place,
+                cross_border=border,
+                home_country=home_cc,
+                allow_network=False,
+            )
+            if resolution.reason == "geo_index_loading":
+                self._last_pass_saw_loading = True
+                continue
+            if resolution.ok and home_coords is not None:
+                job.latitude = float(resolution.latitude)
+                job.longitude = float(resolution.longitude)
+                try:
+                    job.airline_km = haversine_km(
+                        home_coords[0],
+                        home_coords[1],
+                        float(resolution.latitude),
+                        float(resolution.longitude),
+                    )
+                except ValueError:
+                    job.airline_km = None
+
+    def open_selected(self) -> None:
+        job = self._selected or self._job_for_row(self.table.currentRow())
+        if not job:
+            QMessageBox.information(self, tr("nav.jobs"), tr("jobs.select_first"))
+            return
+        url = job.application_url or job.url
+        if url:
+            webbrowser.open(url)
+        else:
+            QMessageBox.information(self, tr("nav.jobs"), tr("jobs.no_url"))
+
+    def prepare_application(self) -> None:
+        job = self._selected or self._job_for_row(self.table.currentRow())
+        if not job:
+            QMessageBox.information(self, tr("nav.jobs"), tr("jobs.select_first"))
+            return
+        cfg = self.config_service.load()
+        self._load_full_ad(job, cfg)
+        from apply.preview import build_application_preview
+        from desktop.widgets.apply_preview_dialog import ApplyPreviewDialog
+
+        meta = self.config_service.load_meta()
+        preview = build_application_preview(job, cfg, meta=meta)
+        ApplyPreviewDialog(preview, self, config=cfg, job=job).exec()
+
+    def _load_full_ad(self, job, cfg) -> None:
+        """XING and StepStone results carry only a teaser; the letter needs the whole ad, so fetch it once."""
+        from search.job_detail import fetch_full_description, needs_full_text
+
+        if not needs_full_text(job):
+            return
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        try:
+            text = fetch_full_description(job)
+        finally:
+            QApplication.restoreOverrideCursor()
+        if text:
+            job.description = text
+            try:
+                Database(cfg.db_path).upsert_job(job)
+            except Exception:  # noqa: BLE001 - the dialog still works with the text in memory
+                pass
+
+    def open_search_intent(self) -> None:
+        self._open_search_intent()

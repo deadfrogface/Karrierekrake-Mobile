@@ -1,0 +1,3 @@
+# Convenience meta-file: install both runtime and development dependencies.
+-r requirements-runtime.txt
+-r requirements-dev.txt

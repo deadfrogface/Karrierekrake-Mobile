@@ -1,0 +1,170 @@
+"""Build a user-initiated privacy export bundle (no secrets)."""
+
+from __future__ import annotations
+
+import json
+import os
+import uuid
+import zipfile
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from core.privacy.inventory import inventory_as_dicts
+from core.security.export_gate import gate_export, gate_field_export
+from core.security.redaction import scrub_mapping
+
+
+@dataclass
+class ExportResult:
+    ok: bool
+    path: str = ""
+    included: list[str] = field(default_factory=list)
+    skipped: list[str] = field(default_factory=list)
+    message: str = ""
+
+
+def _utc_stamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def build_export_bundle(
+    *,
+    dest_dir: Path,
+    profile: dict[str, Any] | None,
+    cases: list[dict[str, Any]] | None = None,
+    mail_meta: list[dict[str, Any]] | None = None,
+    hr_contacts: list[dict[str, Any]] | None = None,
+    jobs_summary: list[dict[str, Any]] | None = None,
+    document_paths: list[Path] | None = None,
+    include_document_bytes: bool = False,
+    user_confirmed_pii: bool = False,
+    additional_sections: dict[str, Any] | None = None,
+    cancelled=None,
+) -> ExportResult:
+    """Write a ZIP under ``dest_dir``. Secrets are never included."""
+    def check_cancel():
+        if cancelled and cancelled():
+            raise InterruptedError("export_cancelled")
+    check_cancel()
+    dest_dir = Path(dest_dir)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    out = dest_dir / f"karrierekrake-privacy-export-{_utc_stamp()}-{uuid.uuid4().hex[:12]}.zip"
+    included: list[str] = []
+    skipped: list[str] = []
+
+    if not user_confirmed_pii:
+        return ExportResult(
+            ok=False,
+            message="PII export requires explicit user confirmation",
+        )
+
+    manifest: dict[str, Any] = {
+        "schema": "karrierekrake.privacy_export.v1",
+        "created_at": _utc_stamp(),
+        "inventory": inventory_as_dicts(),
+        "legal_note": (
+            "Legal basis for processing is UNSPECIFIED / LEGAL REVIEW where it "
+            "depends on the final business model. This export is a technical "
+            "portability aid, not legal advice."
+        ),
+    }
+
+    temporary = out.with_suffix(".partial")
+    try:
+        with zipfile.ZipFile(temporary, "x", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(
+                "manifest.json",
+                json.dumps(manifest, ensure_ascii=False, indent=2),
+            )
+            included.append("manifest.json")
+
+            if profile is not None:
+                decision = gate_field_export("first_name", user_confirmed_pii=True)
+                if decision.allowed:
+                    safe = scrub_mapping(profile) if isinstance(profile, dict) else profile
+                    zf.writestr(
+                        "profile.json",
+                        json.dumps(safe, ensure_ascii=False, indent=2, default=str),
+                    )
+                    included.append("profile.json")
+                else:
+                    skipped.append("profile")
+
+            for name, payload in (
+                ("cases.json", cases),
+                ("mail_meta.json", mail_meta),
+                ("hr_contacts.json", hr_contacts),
+                ("jobs_summary.json", jobs_summary),
+            ):
+                check_cancel()
+                if payload is None:
+                    continue
+                zf.writestr(
+                    name,
+                    json.dumps([scrub_mapping(item) if isinstance(item, dict) else item for item in payload] if isinstance(payload, list) else scrub_mapping(payload) if isinstance(payload, dict) else payload, ensure_ascii=False, indent=2, default=str),
+                )
+                included.append(name)
+
+            for name, payload in (additional_sections or {}).items():
+                check_cancel()
+                if name not in {"case_events", "lifecycle_events", "lifecycle_tasks", "followup_reminders", "applications", "commerce"}:
+                    raise ValueError("unsupported_export_section")
+                safe = [scrub_mapping(item) for item in payload] if isinstance(payload, list) else scrub_mapping(payload)
+                zf.writestr(name + ".json", json.dumps(safe, ensure_ascii=False, indent=2, default=str))
+                included.append(name + ".json")
+
+            doc_index: list[dict[str, Any]] = []
+            used_document_names: set[str] = set()
+            for path in document_paths or []:
+                check_cancel()
+                p = Path(path)
+                gate = gate_export(p, user_confirmed_pii=True)
+                if not gate.allowed:
+                    skipped.append("document_rejected")
+                    continue
+                # Never disclose absolute user paths or overwrite identically named ZIP entries.
+                original_name = p.name
+                candidate = original_name
+                suffix = 2
+                while candidate.casefold() in used_document_names:
+                    candidate = f"{p.stem}-{suffix}{p.suffix}"
+                    suffix += 1
+                used_document_names.add(candidate.casefold())
+                doc_index.append({"name": candidate, "included_bytes": False})
+                if include_document_bytes and p.is_file():
+                    arc = f"documents/{candidate}"
+                    with p.open("rb") as src, zf.open(arc, "w") as dst:
+                        while block := src.read(1024 * 1024):
+                            check_cancel()
+                            dst.write(block)
+                    doc_index[-1]["included_bytes"] = True
+                    included.append(arc)
+                else:
+                    skipped.append(f"bytes:{candidate}")
+            zf.writestr(
+                "documents_index.json",
+                json.dumps(doc_index, ensure_ascii=False, indent=2),
+            )
+            included.append("documents_index.json")
+
+            zf.writestr(
+                "calendar_note.json",
+                json.dumps(
+                    {
+                        "freebusy": "Queries are ephemeral; an imported ICS snapshot can be stored locally.",
+                        "snapshot": "Not included in the metadata export. Use local backup for the imported snapshot.",
+                        "content": "Mail bodies, credentials, logs and document bytes are excluded by default; metadata is redacted.",
+                        "deletion": "disconnect_google + delete_calendar_cache",
+                    },
+                    indent=2,
+                ),
+            )
+            included.append("calendar_note.json")
+        check_cancel()
+        os.replace(temporary, out)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+    return ExportResult(ok=True, path=str(out), included=included, skipped=skipped, message="ok")

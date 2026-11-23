@@ -1,0 +1,368 @@
+"""Canonical salary normalization to EUR GROSS / YEAR.
+
+Ambiguous or unknown salaries return ``(None, reason)`` so matchers can
+score soft penalties without rejecting the job.
+"""
+
+from __future__ import annotations
+
+import re
+from typing import Any
+
+# Documented assumption for hourly → annual conversion.
+HOURS_PER_YEAR = 2080  # 40h/week * 52 weeks = 2080 hours/year
+
+_ANNUAL_UNITS = frozenset(
+    {"annual", "year", "yearly", "jahr", "jährlich", "jaehrlich", "p.a.", "pa"}
+)
+_MONTHLY_UNITS = frozenset(
+    {"monthly", "month", "monat", "monatlich", "p.m.", "pm"}
+)
+_HOURLY_UNITS = frozenset(
+    {"hourly", "hour", "stunde", "stunden", "pro stunde", "/h", "h"}
+)
+
+_UNKNOWN_PHRASES = (
+    "nach vereinbarung",
+    "verhandelbar",
+    "competitive",
+    "negotiable",
+    "auf anfrage",
+    "tbd",
+    "n/a",
+    "k.a.",
+    "keine angabe",
+)
+
+
+def _norm_unit(unit: str | None) -> str | None:
+    if unit is None:
+        return None
+    u = unit.strip().lower().replace("ä", "ae").replace("ü", "ue").replace("ö", "oe")
+    u = u.replace(".", "").replace(" ", "")
+    # Restore common keys after stripping
+    aliases = {
+        "jaehrlich": "jährlich",
+        "jahr": "jahr",
+        "yearly": "yearly",
+        "annual": "annual",
+        "year": "year",
+        "monthly": "monthly",
+        "month": "month",
+        "monat": "monat",
+        "monatlich": "monatlich",
+        "hourly": "hourly",
+        "hour": "hour",
+        "stunde": "stunde",
+        "stunden": "stunde",
+        "prostunde": "stunde",
+        "pa": "annual",
+        "pm": "monthly",
+        "/h": "hour",
+        "h": "hour",
+    }
+    raw = unit.strip().lower()
+    if raw in _ANNUAL_UNITS or aliases.get(u) in _ANNUAL_UNITS or u in {
+        "annual",
+        "year",
+        "yearly",
+        "jahr",
+        "jaehrlich",
+        "jährlich",
+        "pa",
+    }:
+        return "annual"
+    if raw in _MONTHLY_UNITS or aliases.get(u) in _MONTHLY_UNITS or u in {
+        "monthly",
+        "month",
+        "monat",
+        "monatlich",
+        "pm",
+    }:
+        return "monthly"
+    if raw in _HOURLY_UNITS or aliases.get(u) in _HOURLY_UNITS or u in {
+        "hourly",
+        "hour",
+        "stunde",
+        "stunden",
+        "prostunde",
+        "h",
+    }:
+        return "hourly"
+    return None
+
+
+def _parse_number(token: str) -> float | None:
+    t = token.strip().lower().replace("€", "").replace("eur", "").replace(" ", "")
+    if not t:
+        return None
+    # German thousands: 36.000 or 36.000,50 / English: 36,000.50
+    if re.fullmatch(r"\d{1,3}(\.\d{3})+(,\d+)?", t):
+        t = t.replace(".", "").replace(",", ".")
+    elif re.fullmatch(r"\d{1,3}(,\d{3})+(\.\d+)?", t):
+        t = t.replace(",", "")
+    elif "," in t and "." not in t:
+        # 36,5 → 36.5 or 36000,00
+        parts = t.split(",")
+        if len(parts[-1]) == 2 and parts[0].isdigit():
+            t = parts[0] + "." + parts[1]
+        else:
+            t = t.replace(",", ".")
+    mult = 1.0
+    if t.endswith("k"):
+        mult = 1000.0
+        t = t[:-1]
+    try:
+        return float(t) * mult
+    except ValueError:
+        return None
+
+
+def _detect_unit_in_text(text: str) -> str | None:
+    low = text.lower()
+    if re.search(
+        r"\b(pro\s+jahr|per\s+year|/year|/jahr|jährlich|jaehrlich|annual|yearly|p\.?\s*a\.?)\b",
+        low,
+    ):
+        return "annual"
+    if re.search(
+        r"\b(pro\s+monat|per\s+month|/month|/monat|monatlich|monthly|p\.?\s*m\.?)\b",
+        low,
+    ):
+        return "monthly"
+    if re.search(
+        r"\b(pro\s+woche|per\s+week|/week|/woche|wöchentlich|woechentlich|weekly)\b",
+        low,
+    ):
+        return "weekly"
+    if re.search(
+        r"\b(pro\s+stunde|per\s+hour|/hour|/h\b|stündlich|stuendlich|hourly)\b",
+        low,
+    ):
+        return "hourly"
+    if "monat" in low:
+        return "monthly"
+    if "woche" in low or "week" in low:
+        return "weekly"
+    if "stunde" in low or "/h" in low:
+        return "hourly"
+    if "jahr" in low or "year" in low or "annual" in low:
+        return "annual"
+    return None
+
+
+def _extract_from_text(text: str) -> tuple[float | None, str | None, str]:
+    cleaned = text.strip()
+    if not cleaned:
+        return None, None, "empty salary text"
+    low = cleaned.lower()
+    if any(p in low for p in _UNKNOWN_PHRASES):
+        return None, None, "salary unknown / negotiable"
+    # Collective agreements / pay grades are not convertible to a number.
+    # Use {1,2} so "EG 10"/"EG 13" stay pay-scale (not €10/h).
+    if re.search(
+        r"\b(tv[öo]d|tv\-?l|tv\-?a|eg\s*\d{1,2}\b|e\d{1,2}\b|entgeltgruppe|tarif)\b",
+        low,
+    ):
+        return None, None, "pay-scale / collective agreement (unknown amount)"
+    # Floor/"from" amounts ("ab 40.000 €", "ab 14,50 €") — parse the floor number
+    # so the matcher can hard-exclude when floor < minimum.
+    if re.search(r"(?i)\b(ab|from|starting(?:\s+at)?|mindestens)\b", low):
+        if not re.search(r"\d", cleaned):
+            return None, None, "salary floor / 'from' amount (unknown exact)"
+        # Ranges with "ab" still ambiguous exact; prefer floor of first number.
+        unit = _detect_unit_in_text(cleaned)
+        value = _pick_salary_number(cleaned)
+        if value is None:
+            return None, unit, "salary floor / 'from' amount (unknown exact)"
+        return value, unit, "salary floor / 'from' amount"
+    if not re.search(r"\d", cleaned):
+        return None, None, "no numeric salary"
+    unit = _detect_unit_in_text(cleaned)
+    # Ranges before negative check: "40.000 - 50.000" must not look like -50.000.
+    # Use the high end as a ceiling so bands entirely below minimum hard-exclude,
+    # while straddling bands stay soft (ceiling may still meet the floor).
+    range_m = re.search(
+        r"([\d.,]+)\s*(k)?\s*[-–—]\s*([\d.,]+)\s*(k)?",
+        cleaned,
+        re.I,
+    ) or re.search(
+        r"([\d.,]+)\s*(k)?\s*(?:bis|to)\s*([\d.,]+)\s*(k)?",
+        cleaned,
+        re.I,
+    )
+    if range_m:
+        lo = _parse_number(range_m.group(1) + ("k" if range_m.group(2) else ""))
+        hi = _parse_number(range_m.group(3) + ("k" if range_m.group(4) else ""))
+        if lo is None or hi is None:
+            return None, unit, "ambiguous salary range"
+        return max(lo, hi), unit, "salary range ceiling"
+    # Leading / standalone minus → do not invent a positive salary.
+    if re.search(r"(?<![\d.,])-\s*[\d.,]+", cleaned):
+        return None, None, "negative salary text"
+    value = _pick_salary_number(cleaned)
+    if value is None:
+        return None, unit, "could not parse salary number"
+    return value, unit, "ok"
+
+
+def _pick_salary_number(text: str) -> float | None:
+    """Pick the numeric salary amount, ignoring hours/percent noise (e.g. 20h/Woche)."""
+    # Prefer amount adjacent to a currency marker.
+    currency_m = re.search(
+        r"([\d.,]+)\s*(k)?\s*(?:€|eur\b|euro\b)|(?:€|eur\b|euro\b)\s*([\d.,]+)\s*(k)?",
+        text,
+        re.I,
+    )
+    if currency_m:
+        if currency_m.group(1) is not None:
+            raw = currency_m.group(1) + ("k" if currency_m.group(2) else "")
+        else:
+            raw = currency_m.group(3) + ("k" if currency_m.group(4) else "")
+        return _parse_number(raw)
+
+    skip_after = re.compile(
+        r"^\s*(h\b|std\b|stunden\b|hours?\b|%|tage\b|days?\b|wochen?\b|weeks?\b)",
+        re.I,
+    )
+    for m in re.finditer(r"([\d.,]+)\s*(k)?", text, re.I):
+        after = text[m.end() :]
+        # Hourly wage markers like "15/h" are amounts, not noise.
+        if re.match(r"^/(?:h|hour|stunde)\b", after, re.I):
+            raw = m.group(1) + ("k" if m.group(2) else "")
+            return _parse_number(raw)
+        if skip_after.search(after):
+            continue
+        # "20h" without space (working hours, not €/h)
+        if re.match(r"^h\b", after, re.I):
+            continue
+        raw = m.group(1) + ("k" if m.group(2) else "")
+        value = _parse_number(raw)
+        if value is not None:
+            return value
+    return None
+
+
+def _to_annual(value: float, unit: str | None) -> tuple[int | None, str]:
+    if unit == "annual":
+        return int(round(value)), "annual"
+    if unit == "monthly":
+        return int(round(value * 12)), "monthly→annual"
+    if unit == "weekly":
+        return int(round(value * 52)), "weekly→annual"
+    if unit == "hourly":
+        return int(round(value * HOURS_PER_YEAR)), "hourly→annual (40h×52w=2080)"
+    # Heuristic when unit missing: small numbers likely monthly/hourly
+    if value < 100:
+        return int(round(value * HOURS_PER_YEAR)), "assumed hourly→annual"
+    if value < 10_000:
+        return int(round(value * 12)), "assumed monthly→annual"
+    return int(round(value)), "assumed annual"
+
+
+def normalize_to_annual_gross_eur(
+    value: Any = None,
+    unit: str | None = None,
+    text: str | None = None,
+) -> tuple[int | None, str]:
+    """Normalize a salary to EUR gross per year.
+
+    Returns ``(annual_amount, reason)``. When the salary cannot be determined
+    reliably, ``annual_amount`` is ``None`` and ``reason`` explains why — callers
+    must not treat that as a hard job rejection.
+    """
+    explicit_unit = _norm_unit(unit)
+
+    if text:
+        parsed_val, text_unit, status = _extract_from_text(text)
+        # Legacy ambiguous marker (unparseable range) stays unknown.
+        if status == "ambiguous salary range":
+            return None, status
+        if parsed_val is None:
+            # Fall through to numeric value if provided
+            if value is None or value == "":
+                return None, status
+        else:
+            if parsed_val <= 0:
+                return None, "non-positive salary"
+            use_unit = explicit_unit or text_unit
+            annual, how = _to_annual(parsed_val, use_unit)
+            # Preserve floor/from (and similar) reason for matcher soft/hard rules.
+            status_l = status.lower()
+            if status != "ok" and (
+                "floor" in status_l or "from" in status_l or "ceiling" in status_l
+            ):
+                return annual, f"{status}; {how}"
+            return annual, how
+
+    if value is None or value == "":
+        return None, "salary not listed"
+
+    if isinstance(value, str):
+        return normalize_to_annual_gross_eur(None, unit=explicit_unit, text=value)
+
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        return None, "invalid salary value"
+
+    if num <= 0:
+        return None, "non-positive salary"
+
+    use_unit = explicit_unit
+    annual, how = _to_annual(num, use_unit)
+    return annual, how
+
+
+def meets_minimum(
+    job_annual: int | float | None,
+    minimum_annual: int | float | None,
+) -> bool | None:
+    """Return True/False when both sides known; None if either is unknown."""
+    if job_annual is None or minimum_annual is None:
+        return None
+    try:
+        return int(job_annual) >= int(minimum_annual)
+    except (TypeError, ValueError):
+        return None
+
+
+def job_annual_salary(job: Any) -> tuple[int | None, str]:
+    """Resolve a Job's compensation to EUR gross / year.
+
+    Uses salary_text when present; salary_max alone is treated as a ceiling;
+    min!=max both set is ambiguous (unknown exact).
+    """
+    salary_min = getattr(job, "salary_min", None)
+    salary_max = getattr(job, "salary_max", None)
+    salary_text = getattr(job, "salary_text", None) or None
+
+    if salary_text:
+        annual, reason = normalize_to_annual_gross_eur(
+            salary_min if salary_min is not None else None,
+            unit=None,
+            text=salary_text,
+        )
+        return annual, reason
+
+    if (
+        salary_min is not None
+        and salary_max is not None
+        and float(salary_min) != float(salary_max)
+    ):
+        annual, how = normalize_to_annual_gross_eur(salary_max, unit=None, text=None)
+        if annual is None:
+            return None, "ambiguous salary range (min!=max)"
+        return annual, f"salary range ceiling; {how}"
+
+    if salary_min is None and salary_max is not None:
+        annual, how = normalize_to_annual_gross_eur(salary_max, unit=None, text=None)
+        if annual is None:
+            return None, how
+        return annual, f"salary ceiling / max-only; {how}"
+
+    return normalize_to_annual_gross_eur(
+        salary_min if salary_min is not None else None,
+        unit=None,
+        text=None,
+    )

@@ -1,0 +1,188 @@
+name: Build Windows EXE
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+      - name: Install verified security-only CPython patch runtime
+        if: runner.os != 'Linux'
+        run: python scripts/prepare_ci_python.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -c constraints-runtime.txt -r requirements.txt
+      - name: Privacy scan
+        run: python scripts/privacy_scan.py
+      - name: Production content gate (unit)
+        run: python -m pytest -q tests/test_production_content_gate.py tests/test_privacy_scan.py
+      - name: Cache validation model
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/kk-cv-model-cache
+          key: kk-cv-gguf-${{ hashFiles('core/cv_llm_runtime.py') }}
+          restore-keys: kk-cv-gguf-
+      - name: Provision real validation corpus model
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          KARRIEREKRAKE_MODELS_DIR: ${{ runner.temp }}/kk-cv-model-cache
+        run: python scripts/prepare_bundled_cv_model.py --allow-download
+      - name: Full pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: python -m pytest -q -m "not network"
+
+  build:
+    needs: [validate]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Runner CPU
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $cpus = @(Get-CimInstance Win32_Processor)
+          $name = ($cpus | Select-Object -First 1).Name
+          $logical = ($cpus | Measure-Object NumberOfLogicalProcessors -Sum).Sum
+          $physical = ($cpus | Measure-Object NumberOfCores -Sum).Sum
+          Write-Host "runner_cpu name=$name logical=$logical physical=$physical"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+      - name: Install verified security-only CPython patch runtime
+        if: runner.os != 'Linux'
+        run: python scripts/prepare_ci_python.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -c constraints-runtime.txt -r requirements-build.txt
+      - name: Cache bundled CV model weights
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/kk-cv-model-cache
+          key: kk-cv-gguf-${{ hashFiles('core/cv_llm_runtime.py') }}
+          restore-keys: |
+            kk-cv-gguf-
+      - name: Provision Google Desktop client for EXE
+        env:
+          GOOGLE_DESKTOP_CLIENT_JSON: ${{ secrets.GOOGLE_DESKTOP_CLIENT_JSON }}
+        run: python scripts/prepare_google_desktop_client.py
+      - name: Build program folder (onedir) (no bundled Chromium)
+        env:
+          KARRIEREKRAKE_REQUIRE_BUNDLED_CV_MODEL: "1"
+          KARRIEREKRAKE_EMBED_CV_MODEL_IN_EXE: "0"
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          KARRIEREKRAKE_MODELS_DIR: ${{ runner.temp }}/kk-cv-model-cache
+        run: |
+          New-Item -ItemType Directory -Force -Path $env:KARRIEREKRAKE_MODELS_DIR | Out-Null
+          python scripts/prepare_bundled_cv_model.py --allow-download
+          if ($LASTEXITCODE -ne 0) { Write-Error "prepare_bundled_cv_model failed"; exit 1 }
+          python -m PyInstaller --noconfirm --clean packaging/Karrierekrake.spec
+          if (!(Test-Path "dist\Karrierekrake\Karrierekrake.exe")) {
+            Write-Error "Program EXE missing at dist\Karrierekrake\Karrierekrake.exe"
+            exit 1
+          }
+          $item = Get-Item "dist\Karrierekrake\Karrierekrake.exe"
+          if ($item.Length -lt 1000000) { Write-Error "EXE too small"; exit 1 }
+          $hash = (Get-FileHash "dist\Karrierekrake\Karrierekrake.exe" -Algorithm SHA256).Hash
+          @"
+          commit=$env:GITHUB_SHA
+          size=$($item.Length)
+          sha256=$hash
+          console=false
+          cv_model_embedded=1
+          "@ | Set-Content dist\build_metadata.txt
+          Get-Item "dist\Karrierekrake\Karrierekrake.exe" | Format-List FullName, Length
+          # Fail if this is a console subsystem EXE (users must not see a terminal).
+          $stream = [System.IO.File]::OpenRead("dist\Karrierekrake\Karrierekrake.exe")
+          try {
+            $bytes = [byte[]]::new(4096)
+            $read = $stream.Read($bytes, 0, $bytes.Length)
+            if ($read -lt 256) { throw "EXE header truncated" }
+            $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+            if ($pe -lt 0 -or $pe + 0x5E -gt $read) { throw "Invalid PE header offset" }
+            $subsystem = [BitConverter]::ToUInt16($bytes, $pe + 0x5C)
+          } finally { $stream.Dispose() }
+          # 2 = WINDOWS_GUI, 3 = WINDOWS_CUI
+          if ($subsystem -ne 2) { Write-Error "EXE subsystem=$subsystem (expected 2=WINDOWS_GUI / noconsole)"; exit 1 }
+          Write-Host "EXE subsystem=WINDOWS_GUI (noconsole) OK"
+        shell: pwsh
+      - name: Production content scan + manifest
+        shell: pwsh
+        run: |
+          python scripts/generate_content_manifest.py --exe dist/Karrierekrake/Karrierekrake.exe --out dist/content_manifest.json
+          python scripts/scan_release_artifact.py --exe dist/Karrierekrake/Karrierekrake.exe --dist dist --manifest-out dist/content_manifest.json --fail-on-empty --require-google-client-embedded
+          if ($LASTEXITCODE -ne 0) { Write-Error "Production content gate FAILED"; exit 1 }
+      - name: Package Windows release zip (program folder)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $install = Join-Path $env:RUNNER_TEMP "kk-install-$([guid]::NewGuid())"
+          python scripts/package_windows_release.py `
+            --dist dist `
+            --out dist/Karrierekrake-Windows.zip `
+            --stage-install $install
+          if ($LASTEXITCODE -ne 0) { Write-Error "package_windows_release FAILED"; exit 1 }
+          "INSTALL_DIR=$install" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - name: EXE smoke-test
+        shell: pwsh
+        run: |
+          $tmp = New-Item -ItemType Directory -Path "$env:RUNNER_TEMP\jhs-rel-$([guid]::NewGuid())"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          & ".\scripts\ci_wait_exe_smoke.ps1" -ExePath (Resolve-Path "dist\Karrierekrake\Karrierekrake.exe") -LocalAppData $tmp.FullName
+      - name: Offline CV import acceptance
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $env:QT_QPA_PLATFORM = "offscreen"
+          # Shipped defaults only. Any set KARRIEREKRAKE_CV_ or KARRIEREKRAKE_LLM_
+          # variable fails. Allowlist is empty: PEAK_RSS_BYTES_MAX would hide a
+          # real PeakJobMemoryUsed breach, and LLM_BASE is set later inside the
+          # e2e child only.
+          python scripts/ci_release_env_gate.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci_release_env_gate.py --self-test
+          if ($LASTEXITCODE -ne 0) { Write-Error "Release env self-test failed"; exit 1 }
+          Remove-Item Env:KARRIEREKRAKE_CV_LLM_MODEL -ErrorAction SilentlyContinue
+          Remove-Item Env:KARRIEREKRAKE_MODELS_DIR -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          # Provision only this isolated acceptance fixture, after ZIP creation.
+          $testModel = Join-Path $env:INSTALL_DIR 'models/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf'
+          New-Item -ItemType Directory -Force -Path (Split-Path $testModel) | Out-Null
+          Copy-Item 'vendor/cv_model/qwen3.5-4b/Qwen3.5-4B-Q4_K_M.gguf' $testModel
+          $exe = Join-Path $env:INSTALL_DIR "Karrierekrake.exe"
+          python scripts/ci_cv_import_exe_offline_e2e.py `
+            --exe $exe `
+            --cv tests/fixtures/cv_corpus/DE_01_Klassisch.pdf `
+            --cv-en tests/fixtures/cv_corpus/EN_01_Classic_Resume.pdf `
+            --out artifacts/cv_import_exe_offline_e2e.json `
+            --import-timeout 900
+          if ($LASTEXITCODE -ne 0) { Write-Error "Offline CV import FAILED — release blocked"; exit 1 }
+      - name: Upload Karrierekrake.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: Karrierekrake-Windows
+          path: |
+            dist/Karrierekrake-Windows.zip
+            dist/Karrierekrake-Windows.zip.json
+            dist/build_metadata.txt
+            dist/content_manifest.json
+            build/release-compliance/*
+            artifacts/cv_import_exe_offline_e2e.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 30

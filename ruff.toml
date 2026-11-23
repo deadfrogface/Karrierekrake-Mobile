@@ -1,0 +1,14 @@
+# Lint gate for the program code: syntax errors and pyflakes (unused or undefined names).
+# Run: python -m ruff check .
+target-version = "py312"
+line-length = 120
+extend-exclude = ["benchmark", "third_party", "tools", "mobile", "build", "dist", "artifacts", "website"]
+
+[lint]
+select = ["E9", "F"]
+
+[lint.per-file-ignores]
+# pytest fixtures are imported from other test modules and then named as parameters.
+"tests/**" = ["F401", "F811"]
+# Package __init__ files re-export names for their callers.
+"**/__init__.py" = ["F401"]

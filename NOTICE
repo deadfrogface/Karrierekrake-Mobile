@@ -1,0 +1,176 @@
+Karrierekrake
+=============
+
+Copyright (c) 2026 [Name des Anbieters]. All rights reserved.
+
+Karrierekrake is proprietary software. Its terms are in the file LICENSE;
+users of the distributed program are bound by the end-user licence agreed at purchase.
+
+The third-party components below keep their own licences. The full texts of the
+GPL-3.0 and LGPL-3.0 (Qt / PySide6) are shipped in THIRD_PARTY_NOTICES.txt and in
+packaging/licenses/.
+
+Third-party source acknowledgements
+-----------------------------------
+
+### JobRadar (GPL-3.0): no code remains
+
+Earlier versions adapted job-source adapters from https://github.com/jason-huanghao/jobradar (GPL-3.0).
+On 2026-10-21 `search/bundesagentur.py`, `search/indeed.py`, `search/stepstone.py`, `search/xing.py` and
+`search/jsonld.py` were rewritten from the public API and schema descriptions (bundesAPI Jobsuche
+description, JobSpy documentation, schema.org JobPosting) without that code. No JobRadar code is part of
+the program any more.
+
+### JobSpy (MIT)
+
+The Indeed and LinkedIn clients (`search/indeed_api.py`, `search/linkedin_api.py`) are our own code. The
+endpoint, the app key and request headers of the Indeed client and the result-card markup of the LinkedIn client
+were taken from the open-source JobSpy project, https://github.com/speedyapply/JobSpy:
+
+  MIT License. Copyright (c) 2023 Cullen Watson
+
+  Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated
+  documentation files (the "Software"), to deal in the Software without restriction, including without limitation
+  the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and
+  to permit persons to whom the Software is furnished to do so, subject to the following conditions: The above
+  copyright notice and this permission notice shall be included in all copies or substantial portions of the
+  Software. THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT
+  LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
+  SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+  OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+  DEALINGS IN THE SOFTWARE.
+
+JobSpy itself and curl_cffi are no longer part of the program.
+
+### AutoApply (MIT)
+
+Portions of the browser automation and ATS application adapters
+(Greenhouse, Lever, Ashby, Indeed, LinkedIn, Workday), browser session
+management, ATS URL detection, document text extraction, and later German
+ATS field-fill patterns (Personio / SmartRecruiters / SuccessFactors) are
+adapted from:
+
+  https://github.com/AbhishekMandapmalvi/AutoApply
+  Copyright (C) 2026 Abhishek Mandapmalvi
+  Licensed under the MIT License
+
+The MIT License permission notice and copyright must be retained for those
+portions. Electron/Flask frontend code from AutoApply is not included.
+
+Auto-Fill-Forms (https://github.com/w4seemdev/Auto-Fill-Forms) was inspected
+for ATS coverage ideas only; no code or playbook text was copied (no license).
+OpenResume and pyresparser were evaluated and not vendored.
+
+### Post-application lifecycle reuse (2026-09)
+
+See `docs/post-application-lifecycle-reuse-audit.md` and snapshots under
+`third_party/post-application-audit/`.
+
+**PBP — Persönliches Bewerbungs-Portal (MIT)**  
+https://github.com/MadGapun/PBP — Copyright (c) 2026 Markus Birzite  
+Adapted: German email status phrases / association rules (`email_service`),
+ICS escape/fold (`ics_service`), follow-up text (`nachfass_text`, Claude
+prompt omitted), meeting collision ideas (`termin_dubletten`), job-state
+suppression ideas (`stellen_zustand`).
+
+**GmailJobTracker (MIT)**  
+https://github.com/cyberthreatgurl/GmailJobTracker — Copyright (c) 2025
+GmailJobTracker Contributors  
+Adapted: Gmail readonly OAuth flow shape (`gmail_auth`), rule-based
+classification / false-rejection overrides, ATS URL heuristics, company
+normalize ideas. Django dashboard and ML classifier were not vendored.
+
+**ejobtrack (Apache-2.0)**  
+https://github.com/Ralph-Abejuela/ejobtrack  
+Adapted: Gmail list/get/parse and 401/429 client patterns (`gmail.ts`).
+Xenova browser ML classifier was not required.
+
+**thehar/job-tracker (MIT)** · **trackjobapplications (MIT)** · **CareerSync (MIT)**  
+Reminder / follow-up / exclude-email / status-enum patterns adapted lightly.
+React/Django/Next stacks were not adopted as core dependencies.
+
+**ai-job-tracker / JobTrackr (MIT)** — Claude classification path **rejected**;
+STATUS_RANK / ambiguous-inbox ideas referenced only.
+
+**job-track-os** — MIT + Commons Clause: **no code copied**.
+
+### Günther die Krake — local AI (2026-09)
+
+Optional on-device intelligence. No cloud AI required. Model weights are
+downloaded by the user into %%LOCALAPPDATA%%\\Karrierekrake\\models and are
+**not** redistributed inside Karrierekrake.exe.
+
+**llama.cpp** (MIT) — https://github.com/ggerganov/llama.cpp  
+**llama-cpp-python** (MIT) — https://github.com/abetlen/llama-cpp-python  
+Copyright (c) 2023 Andrei Betlen — optional embedded runtime WRAP.
+
+**Ollama** — optional developer/benchmark HTTP backend only; not required for
+end users.
+
+Model weight licenses (downloaded separately, never in git/EXE):
+
+Current setup catalog (source metadata checked 2026-10-16; all Apache-2.0):
+
+- **qwen3.5-4b-gsq** — `ISTA-DASLab/Qwen3.5-4B-GGUF-GSQ`; `Qwen3.5-4B-Q2_K_XL.gguf`; 1940825248 bytes.
+  Pinned source: https://huggingface.co/ISTA-DASLab/Qwen3.5-4B-GGUF-GSQ/resolve/3fd6825d7b0f014adb03d3981074a43753c0b8be/Qwen3.5-4B-Q2_K_XL.gguf
+  SHA256: `b7d9ec51fb4d726d31e6bfd47062fb74574a974b93951da6a435b5e35185cb5a`.
+- **qwen3-8b-gsq** — `ISTA-DASLab/Qwen3-8B-GGUF-GSQ`; `qwen3-8b-Q3_K_M.gguf`; 4124161376 bytes.
+  Pinned source: https://huggingface.co/ISTA-DASLab/Qwen3-8B-GGUF-GSQ/resolve/5605b36840bc26d62b34a6adb518109f55c412d2/qwen3-8b-Q3_K_M.gguf
+  SHA256: `81894ed9b0e0245af542019a941e0aac21f3ec8b5a2386b82486db19c0170e77`.
+- **qwen3.8-27b-gsq-rco** — `ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF`; `Qwen3.8-27B-GSQ-RCO-IQ2_XS.gguf`; 8422841472 bytes.
+  Pinned source: https://huggingface.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF/resolve/d562806dbafae37109975e970aae91b43e73b440/Qwen3.8-27B-GSQ-RCO-IQ2_XS.gguf
+  SHA256: `f0ae5006da0ce6225935339e4e989369f94de95d2263cf969519f8420c9ae02c`.
+
+Metadata evidence: docs/project/T02_MODEL_SOURCE_AUDIT_2026-10-16.json.
+Model load, hardware suitability and output quality are separate checks.
+
+Earlier optional-model research notes (not the current setup defaults):
+
+- **Qwen3 1.7B Q4_K_M (LIGHT)** — base `Qwen/Qwen3-1.7B` **Apache-2.0**;
+  GGUF file from `bartowski/Qwen_Qwen3-1.7B-GGUF`
+  (`Qwen_Qwen3-1.7B-Q4_K_M.gguf`, SHA256
+  `72c5c3cb38fa32d5256e2fe30d03e7a64c6c79e668ad84057e3bd66e250b24fb`,
+  ~1.28 GB). Official Qwen GGUF currently publishes Q8_0 only for 1.7B.
+- **Qwen3 4B Q4_K_M (STANDARD)** — official `Qwen/Qwen3-4B-GGUF`
+  (`Qwen3-4B-Q4_K_M.gguf`, SHA256
+  `7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5`,
+  ~2.50 GB) **Apache-2.0**.
+- **Phi-4-mini-instruct** — MIT weights; **download URL deferred**
+  (REVIEW REQUIRED) until a pinned GGUF+SHA is chosen.
+- **Gemma 3** — not a default Autopick model (Gemma Terms of Use flow-down;
+  see docs/guenther-reuse-license-audit.md).
+
+Pydantic (MIT) is already a Karrierekrake runtime dependency and is used for
+structured contract validation of untrusted model output.
+
+### Recruiting contact discovery (PR25)
+
+Optional structured-data / HTML helpers (used when installed; bs4/lxml fallback
+is the default path — no scrape of login/paywall or LinkedIn as a required source):
+
+- **extruct** (BSD) — https://github.com/scrapinghub/extruct
+- **selectolax** (MIT) — https://github.com/rushter/selectolax
+- **trafilatura** (Apache-2.0 / GPL-3.0+) — https://github.com/adbar/trafilatura
+- **schema.org JobPosting** — https://schema.org/JobPosting (vocabulary only)
+
+### Local DACH geo data
+
+- **GeoNames postal code export** — https://www.geonames.org/ /
+  https://download.geonames.org/export/zip/ — Creative Commons Attribution 4.0
+- **pgeocode** (BSD-3-Clause) — https://github.com/symerio/pgeocode
+- **postal-codes-data mirror** — https://github.com/symerio/postal-codes-data
+
+Karrierekrake ships a versioned DACH snapshot under `data/geo/` and may update
+directly from the documented mirrors. Public Nominatim is not used in production.
+
+
+### Free calendar protocol libraries
+
+The runtime uses python-caldav (GPL-3.0-or-later OR Apache-2.0), icalendar
+(BSD-2-Clause), and recurring-ical-events (LGPL-3.0-or-later) as unmodified
+installed dependencies. They provide CalDAV transport and RFC 5545 recurrence
+expansion; no source is vendored by this change.
+
+  https://github.com/python-caldav/caldav
+  https://github.com/collective/icalendar
+  https://github.com/niccokunzmann/python-recurring-ical-events

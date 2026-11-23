@@ -1,0 +1,80 @@
+mode: search_only   # search_only | review_before_submit | fully_automatic
+dry_run: true
+minimum_match_for_auto_apply: 75
+minimum_match_for_dashboard: 60
+max_applications_per_run: 10
+max_applications_per_day: 25
+max_failed_applications_per_run: 5
+delay_between_applications_seconds: 30
+headless: true
+published_within_days: 14
+hide_already_applied: true
+hide_duplicates: true
+database_path: data/jobs.db
+logs_dir: logs
+browser_profile_dir: private/browser_profile
+enabled_sources:
+  - bundesagentur
+  - indeed
+  # - company_sites  (opt-in: employer pages + web search fallback)
+company_web_source_migrated: true
+  # - linkedin
+  # - stepstone
+  # - xing
+geocoder: local
+cover_letter_template: templates/cover_letter.txt
+exclude_on_missing_mandatory: false
+# Search UX
+search_mode: profile_discovery   # profile_discovery | explicit_titles
+jobs_per_search: 40              # 10..100 or 0 = Max
+# Desktop UI
+theme: system          # system | light | dark
+language: de           # de | en
+start_with_windows: false
+minimize_to_tray: false
+# Post-application lifecycle
+preferred_contact: email          # email | phone | either
+phone_available: true
+telephone_availability: "09:00-12:00,14:00-17:00"
+working_hours: "09:00-17:00"
+follow_up_days: 14
+ghosted_days: 21
+followup_enabled: true
+followup_reminders_enabled: false
+followup_reminder_schema_version: 1
+email_draft_only: true
+allow_employer_email_send: false
+gmail_sync_enabled: false
+gmail_exclude_senders: []
+calendar_freebusy_enabled: false
+gmail_credentials_path: private/gmail_credentials.json
+scheduling_timezone: Europe/Berlin
+interview_duration_minutes: 60
+schedule_buffer_before_minutes: 15
+schedule_buffer_after_minutes: 15
+onsite_travel_buffer_minutes: 0
+schedule_allow_weekends: false
+schedule_respect_holidays: false
+schedule_holiday_country: DE
+schedule_preferred_windows: ''
+schedule_slot_step_minutes: 30
+schedule_max_ranked_slots: 5
+allow_calendar_write: false
+# Günther die Krake — optionale lokale Hilfe (kein Cloud-KI-Zwang)
+guenther_enabled: true
+guenther_model: auto              # auto | qwen3-1.7b | qwen3-4b | phi4-mini
+guenther_heuristic_fallback: true
+# Ignored for enabling local LLM CV parsing. Only KARRIEREKRAKE_LOCAL_LLM_CV_PARSING can.
+# No automatic Phi fallback. See docs/devops/i3-8gb-peak-rss-gate.md.
+local_llm_cv_parsing_enabled: false
+# Recruiting contact discovery (PR25) — off by default; provenance required
+contact_discovery_enabled: false
+contact_discovery_max_fetches_per_run: 20
+contact_discovery_min_interval_seconds: 1.0
+contact_discovery_cache_ttl_hours: 168
+contact_discovery_stale_after_days: 90
+contact_discovery_allow_retro_crawl: false
+# Contact verification + writer binding (PR26) — discovery never auto-uses contacts
+contact_verification_enabled: true
+# Rollback writer link without dropping provenance: set false
+contact_writer_binding_enabled: true

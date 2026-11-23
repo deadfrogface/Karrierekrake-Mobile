@@ -1,0 +1,158 @@
+"""Duplicate detection and source preference."""
+
+from __future__ import annotations
+
+import hashlib
+import re
+from collections import defaultdict
+
+from core.models import Job
+
+# Prefer direct career / ATS over job portals when collapsing duplicates
+SOURCE_PRIORITY = {
+    "company_site": 100,
+    "greenhouse": 90,
+    "lever": 90,
+    "ashby": 90,
+    "workday": 90,
+    "personio": 90,
+    "smartrecruiters": 85,
+    "successfactors": 85,
+    "bundesagentur": 70,
+    "stepstone": 50,
+    "xing": 50,
+    "indeed": 40,
+    "linkedin": 40,
+    "unknown": 10,
+}
+
+_LEGAL_SUFFIX = re.compile(
+    r"\b(gmbh|ag|kg|ug|se|inc|ltd|llc|co\.?|company|mbh)\b\.?",
+    re.I,
+)
+_GENDER_TAG = re.compile(
+    r"(?:"
+    r"\((?:m/w/d|w/m/d|m/w|w/m|f/m/d|d/m/w|all genders|alle geschlechter)\)|"
+    r"\b(?:m/w/d|w/m/d|f/m/d|d/m/w)\b|"
+    r"\b(?:m/w|w/m)\b"
+    r")",
+    re.I,
+)
+
+
+def make_job_id(source: str, source_job_id: str = "", url: str = "", title: str = "", company: str = "") -> str:
+    key = source + "|" + (source_job_id or url.strip().lower() or f"{title}|{company}".lower())
+    return hashlib.sha256(key.encode()).hexdigest()[:16]
+
+
+def _norm(text: str) -> str:
+    text = (text or "").lower().strip()
+    text = re.sub(r"[^a-z0-9äöüß\s]", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def company_key(company: str) -> str:
+    """Normalize company for twin matching (strip GmbH/AG/… legal suffixes)."""
+    text = (company or "").lower().strip()
+    text = _LEGAL_SUFFIX.sub("", text)
+    text = re.sub(r"[^a-z0-9äöüß]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def title_key(title: str) -> str:
+    """Normalize title for twin matching (strip German gender tags)."""
+    text = (title or "").lower().strip()
+    text = _GENDER_TAG.sub(" ", text)
+    text = re.sub(r"[^a-z0-9äöüß]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def fingerprint(job: Job) -> str:
+    """Soft fingerprint for cross-platform duplicates.
+
+    Uses the same company/title keys as ``Database.has_applied`` so portal twins
+    (Acme GmbH vs Acme, title with/without m/w/d) collapse consistently.
+    """
+    return "|".join(
+        [
+            company_key(job.company),
+            title_key(job.title),
+            _norm(job.city or job.address),
+        ]
+    )
+
+
+def soft_fingerprint_usable(job: Job) -> bool:
+    """Require company + title + place so bare titles cannot collapse portals."""
+    company = company_key(job.company)
+    title = title_key(job.title)
+    place = _norm(job.city or job.address)
+    return bool(company and title and place)
+
+
+def source_rank(job: Job) -> int:
+    """Prefer real ATS identity; ignore placeholder ats_type 'unknown'."""
+    ats = (job.ats_type or "").strip().lower()
+    if ats and ats != "unknown" and ats in SOURCE_PRIORITY:
+        return SOURCE_PRIORITY[ats]
+    return SOURCE_PRIORITY.get(job.source, 10)
+
+
+def deduplicate(jobs: list[Job]) -> list[Job]:
+    """Keep one main entry per vacancy; attach alt sources on the winner."""
+    by_hard: dict[str, Job] = {}
+    hard_losers: list[Job] = []
+    for job in jobs:
+        hard_key = job.url.strip().lower() or job.application_url.strip().lower() or job.id
+        existing = by_hard.get(hard_key)
+        if not existing:
+            by_hard[hard_key] = job
+            continue
+        if source_rank(job) > source_rank(existing):
+            job.alt_sources = list({*existing.alt_sources, existing.source, *job.alt_sources})
+            existing.duplicate_of = job.id
+            hard_losers.append(existing)
+            by_hard[hard_key] = job
+        else:
+            existing.alt_sources = list({*existing.alt_sources, job.source})
+            job.duplicate_of = existing.id
+            hard_losers.append(job)
+
+    # Soft fingerprint grouping across different URLs (only when fingerprint is strong).
+    groups: dict[str, list[Job]] = defaultdict(list)
+    singles: list[Job] = []
+    for job in by_hard.values():
+        if job.duplicate_of:
+            continue
+        if not soft_fingerprint_usable(job):
+            singles.append(job)
+            continue
+        groups[fingerprint(job)].append(job)
+
+    winners: list[Job] = []
+    winners.extend(singles)
+    for _fp, group in groups.items():
+        if len(group) == 1:
+            winners.append(group[0])
+            continue
+        group.sort(key=source_rank, reverse=True)
+        primary = group[0]
+        for other in group[1:]:
+            other.duplicate_of = primary.id
+            primary.alt_sources = list({*primary.alt_sources, other.source, *other.alt_sources})
+            winners.append(other)  # keep internally, marked duplicate
+        winners.append(primary)
+    # Preserve hard-URL losers so callers can count duplicates_removed.
+    return winners + hard_losers
+
+
+def is_likely_same_job(a: Job, b: Job) -> bool:
+    if a.id and b.id and a.id == b.id:
+        return True
+    if a.url and b.url and a.url.strip().lower() == b.url.strip().lower():
+        return True
+    if a.application_url and b.application_url and a.application_url.strip().lower() == b.application_url.strip().lower():
+        return True
+    if not (soft_fingerprint_usable(a) and soft_fingerprint_usable(b)):
+        return False
+    return fingerprint(a) == fingerprint(b)

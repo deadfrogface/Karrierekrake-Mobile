@@ -1,0 +1,127 @@
+# Exact runtime tree for reproducible installs:
+#   pip install -c constraints-runtime.txt -r requirements-runtime.txt
+#
+# Measured on main dcae58b (Python 3.12, windows-latest), 2026-09-25.
+# `pip install -r requirements-runtime.txt` resolved pgeocode==0.5.0 and the
+# packages below in both of these jobs (same Successfully installed set):
+# - Windows Smoke / build-and-exe-smoke (the EXE bundle)
+#   https://github.com/deadfrogface/Karrierekrake/actions/runs/36093761509
+# - CI / security (runtime-only install, before pytest/pip-audit/bandit)
+#   https://github.com/deadfrogface/Karrierekrake/actions/runs/36093761411
+# Other CI jobs on that SHA (privacy, and the requirements.txt installs)
+# resolved the same runtime versions, including pgeocode==0.5.0.
+#
+# Direct requirements stay lower bounds in requirements-runtime.txt.
+# pgeocode is also ==0.5.0 there, because that is the version the EXE ships.
+# This file pins the transitive closure so later PyPI releases cannot change
+# the Windows EXE or before/after measurements.
+# Dev tools (pytest, PyInstaller, dspy, ...) are intentionally not pinned.
+#
+# 2026-11-14: pandas and pgeocode left the runtime (own reader for the postal tables). Their lines were removed
+# here; every other pin is unchanged. The measurements named above still list pgeocode==0.5.0.
+#
+# Regenerate only when the runtime baseline should move, from a clean
+# windows-latest / Python 3.12 install of requirements-runtime.txt.
+
+annotated-types==0.8.0
+anthropic==2.12.0
+anyio==4.15.1
+APScheduler==3.11.3
+beautifulsoup4==4.15.0
+certifi==2026.10.19
+cffi==2.1.1
+charset-normalizer==3.5.1
+cryptography==50.0.2
+dateparser==1.4.3
+google-api-core==2.39.0
+google-api-python-client==2.200.0
+google-auth==2.58.1
+google-auth-httplib2==0.4.2
+google-auth-oauthlib==1.4.1
+googleapis-common-protos==1.75.4
+greenlet==3.5.6
+h11==0.16.0
+holidays==0.105
+httpcore==1.0.9
+httplib2==0.32.0
+httpx==0.28.1
+icalendar==7.3.0
+idna==3.20
+jaraco.classes==3.4.0
+jaraco.context==6.1.2
+jaraco.functools==4.6.0
+keyring==25.7.0
+# llama-cpp-python 0.3.35: PyPI has only the sdist (no wheels).
+# CPU wheels come from the upstream index in requirements-runtime.txt
+# (https://abetlen.github.io/llama-cpp-python/whl/cpu), which lists the
+# GitHub release assets for v0.3.35. build-and-exe-smoke and build-windows
+# install with `-c constraints-runtime.txt -r requirements-runtime.txt`, so
+# the Windows EXE resolves this pin to:
+#   llama_cpp_python-0.3.35-py3-none-win_amd64.whl
+#   https://github.com/abetlen/llama-cpp-python/releases/download/v0.3.35/llama_cpp_python-0.3.35-py3-none-win_amd64.whl
+# diskcache, jinja2 and MarkupSafe are the non-extra requires of 0.3.35
+# (versions resolved with that CPU wheel on Python 3.12, 2026-09-28).
+# The Windows wheel's ggml-cpu.dll is one library (GGML_CPU_ALL_VARIANTS OFF,
+# GGML_BACKEND_DL OFF). Disassembly: AVX2 ymm ops, no zmm, no AMX
+# (tileloadd/tdpbssd). build-and-exe-smoke installs this wheel; it does not
+# compile with -march=native on the runner. The import logs CPU_REPACK/AMX
+# buffer lines when a GGUF loads. Do not replace the wheel without a
+# measurement on the i3.
+diskcache==5.6.3
+jinja2==3.1.6
+llama-cpp-python==0.3.35
+lxml==6.1.3
+MarkupSafe==3.0.3
+more-itertools==11.1.0
+# numpy 2.x (2026-11-14): llama_cpp is its only consumer. The Windows OpenBLAS library is 20.6 MB
+# instead of 38 MB, and random/fft/ma/polynomial load only on use, so the package leaves them out
+# (packaging/kk_content_policy.py ANALYSIS_EXCLUDES). Import answers are character-identical to 1.26.3.
+numpy==2.5.4
+oauthlib==4.0.1
+opentelemetry-api==1.45.2
+playwright==1.63.0
+proto-plus==1.28.4
+protobuf==7.36.2
+# Physical core count for CV LLM n_threads. A runtime-only install
+# (`-c constraints-runtime.txt -r requirements-runtime.txt`) must be able to
+# `import psutil`. 7.2.2 is the version resolved in the dev venv on 2026-09-28.
+psutil==7.2.2
+pyasn1==0.6.5
+pyasn1_modules==0.4.2
+pycparser==3.0
+pydantic==2.13.5
+pydantic_core==2.46.5
+pyee==13.0.1
+pyparsing==3.3.3
+pypdf==6.21.4
+PySide6==6.11.2
+PySide6_Addons==6.11.2
+PySide6_Essentials==6.11.2
+python-dateutil==2.9.0.post0
+python-docx==1.2.0
+python-dotenv==1.2.3
+pytz==2026.4
+pywin32-ctypes==0.2.3
+PyYAML==6.0.3
+RapidFuzz==3.14.6
+regex==2024.11.6
+requests==2.34.2
+requests-oauthlib==2.0.0
+shiboken6==6.11.2
+six==1.17.0
+soupsieve==4.1
+tenacity==9.1.4
+typing-inspection==0.4.4
+typing_extensions==4.16.0
+tzdata==2026.4
+tzlocal==5.4.4
+uritemplate==4.2.0
+urllib3==2.8.0
+
+click==8.5.0
+docstring_parser==0.18.0
+httpcore2==2.13.1
+httpx2==2.13.1
+jiter==0.19.0
+sniffio==1.3.1
+truststore==0.10.4

@@ -1,0 +1,199 @@
+"""Local calendar snapshot for Google, Samsung and Apple exports; never writes."""
+from datetime import date, datetime, time, timedelta, timezone
+from pathlib import Path
+from urllib.parse import urlsplit
+import http.client
+import ssl
+import ipaddress
+import socket
+import os
+from zoneinfo import ZoneInfo
+
+from icalendar import Calendar
+from integrations.calendar.caldav.recurrence import expand
+from integrations.calendar.contracts import BusyInterval, CalendarAccountIdentity
+from integrations.providers.enums import CalendarProvider, ProviderError
+
+MAX_BYTES = 20 * 1024 * 1024
+MAX_AGE = timedelta(days=7)
+
+
+def read_calendar(path):
+    path = Path(path)
+    if not path.is_file() or path.stat().st_size > MAX_BYTES:
+        raise ValueError('Bitte eine Kalenderdatei bis 20 MB auswählen.')
+    calendar = Calendar.from_ical(path.read_bytes())
+    if calendar.name != 'VCALENDAR':
+        raise ValueError('Ungültige Kalenderdatei.')
+    # Malformed timed events must not appear as free time.
+    for event in calendar.walk('VEVENT'):
+        if 'DTSTART' not in event:
+            raise ValueError('Kalender enthält einen Termin ohne Beginn.')
+        start = event.decoded('DTSTART')
+        if 'DTEND' in event:
+            end = event.decoded('DTEND')
+            if isinstance(start, datetime) != isinstance(end, datetime):
+                raise ValueError('Kalender enthält inkompatible Terminzeiten.')
+            if isinstance(start, datetime):
+                # RFC floating timestamps use the configured timezone at query time.
+                a = start if start.tzinfo else start.replace(tzinfo=ZoneInfo('Europe/Berlin'))
+                b = end if end.tzinfo else end.replace(tzinfo=ZoneInfo('Europe/Berlin'))
+                valid = b > a
+            else:
+                valid = end > start
+            if not valid:
+                raise ValueError('Kalender enthält einen Termin mit ungültigem Ende.')
+        elif 'DURATION' in event:
+            if event.decoded('DURATION') <= timedelta(0):
+                raise ValueError('Kalender enthält einen Termin mit ungültiger Dauer.')
+        elif isinstance(start, datetime):
+            raise ValueError('Kalender enthält einen Termin ohne Ende.')
+    return calendar
+
+
+class LocalIcsCalendarAdapter:
+    provider = CalendarProvider.LOCAL_ICS
+
+    def __init__(self, *, settings, token_dir=None):
+        self.path = Path(settings.local_calendar_path or '')
+        self.settings = settings
+        self.timezone = getattr(settings, "scheduling_timezone", "Europe/Berlin")
+
+    def identity(self):
+        return CalendarAccountIdentity(provider=self.provider, account_key='local_ics', calendar_id='snapshot')
+
+    def is_connected(self):
+        try:
+            self._refresh_if_stale()
+            read_calendar(self.path)
+            return datetime.now(timezone.utc) - datetime.fromtimestamp(self.path.stat().st_mtime, timezone.utc) <= MAX_AGE
+        except Exception:
+            return False
+
+    def _refresh_if_stale(self):
+        url = getattr(self.settings, "local_calendar_feed_url", "")
+        if not url:
+            return
+        if self.path.is_file() and datetime.now(timezone.utc) - datetime.fromtimestamp(self.path.stat().st_mtime, timezone.utc) < timedelta(hours=6):
+            return
+        try:
+            refresh_private_ics(url, self.path)
+        except Exception:
+            # A stale snapshot is rejected by is_connected rather than silently
+            # treating the calendar as empty.
+            pass
+
+    def query_busy(self, q):
+        if q.time_min.tzinfo is None or q.time_max.tzinfo is None or not timedelta(0) < q.time_max - q.time_min <= timedelta(days=366):
+            raise ProviderError('local_ics', 'calendar_invalid_range', reconnectable=False)
+        if not self.is_connected():
+            raise ProviderError('local_ics', 'calendar_snapshot_missing_or_stale', reconnectable=True)
+        try:
+            calendar = read_calendar(self.path)
+            tz = ZoneInfo(self.timezone)
+
+            def aware(value):
+                if isinstance(value, datetime):
+                    return value if value.tzinfo else value.replace(tzinfo=tz)
+                if isinstance(value, date):
+                    return datetime.combine(value, time.min, tzinfo=tz)
+                raise ValueError('invalid_event_date')
+
+            intervals = []
+            occurrences = expand([calendar.to_ical().decode()], q.time_min, q.time_max, tz)
+            for event in (part for text in occurrences for part in Calendar.from_ical(text).walk('VEVENT')):
+                if str(event.get('STATUS', '')).upper() == 'CANCELLED' or str(event.get('TRANSP', '')).upper() == 'TRANSPARENT':
+                    continue
+                raw_start = event.decoded('DTSTART')
+                start = aware(raw_start)
+                if 'DTEND' in event:
+                    end = aware(event.decoded('DTEND'))
+                elif 'DURATION' in event:
+                    end = start + event.decoded('DURATION')
+                elif not isinstance(raw_start, datetime):
+                    end = start + timedelta(days=1)
+                else:
+                    raise ValueError('event_end_missing')
+                if end <= start:
+                    raise ValueError('invalid_event_end')
+                if start < q.time_max and q.time_min < end:
+                    intervals.append(BusyInterval(start=start.astimezone(timezone.utc), end=end.astimezone(timezone.utc)))
+            return intervals
+        except Exception:
+            raise ProviderError('local_ics', 'calendar_snapshot_invalid', reconnectable=True) from None
+
+    def create_event(self, draft):
+        raise ProviderError('local_ics', 'calendar_snapshot_read_only', reconnectable=False)
+
+    def disconnect(self, *, revoke_remote=True):
+        # Configuration cleanup is owned by the caller; remove only the app copy.
+        if self.path.name == "calendar-snapshot.ics" and self.path.parent.name == "cache":
+            self.path.unlink(missing_ok=True)
+
+
+class CalendarLinkError(ValueError):
+    """A calendar link problem written for the person, safe to show as is (no URL, no secrets)."""
+
+
+def refresh_private_ics(url: str, destination: Path, *, timeout: int = 15) -> bool:
+    """Fetch a user-supplied private HTTPS iCal feed; never send its URL to app servers.
+
+    Restrict DNS and redirect targets to public IPs to avoid local network access.
+    The destination is only replaced after the entire calendar validates.
+    Rejects redirects and non-200 responses.
+    """
+
+    parsed = urlsplit(url)
+    if (parsed.scheme != "https" or not parsed.hostname or parsed.username
+            or parsed.password or parsed.port not in (None, 443)
+            or parsed.fragment):
+        raise CalendarLinkError("Der Link muss mit https:// oder webcal:// beginnen und darf kein Passwort enthalten.")
+    try:
+        addresses = socket.getaddrinfo(parsed.hostname, 443, type=socket.SOCK_STREAM)
+    except OSError:
+        raise CalendarLinkError("Der Kalender-Link ist nicht erreichbar. Prüfe, ob du ihn vollständig kopiert hast "
+                                "und ob du online bist.") from None
+    if not addresses:
+        raise CalendarLinkError("Der Kalender-Link ist nicht erreichbar. Prüfe, ob du ihn vollständig kopiert hast.")
+    # Validate every DNS answer, then pin the connection to one checked IP.
+    for info in addresses:
+        if not ipaddress.ip_address(info[4][0]).is_global:
+            raise CalendarLinkError("Links in dein eigenes Netzwerk sind aus Sicherheitsgründen nicht erlaubt.")
+    address = addresses[0][4][0]
+    class PinnedHTTPS(http.client.HTTPSConnection):
+        def connect(self):
+            raw = socket.create_connection((address, 443), timeout=self.timeout)
+            self.sock = self._context.wrap_socket(raw, server_hostname=parsed.hostname)
+    conn = PinnedHTTPS(parsed.hostname, 443, timeout=timeout, context=ssl.create_default_context())
+    try:
+        path = parsed.path or "/"
+        if parsed.query:
+            path += "?" + parsed.query
+        conn.request("GET", path, headers={"User-Agent": "Karrierekrake/1.0", "Accept": "text/calendar"})
+        response = conn.getresponse()
+        if response.status != 200:
+            hint = (" Der Link ist ungültig oder wurde zurückgesetzt. Kopiere ihn neu."
+                    if response.status in (401, 403, 404, 410) else "")
+            raise CalendarLinkError("Der Kalender-Anbieter hat den Abruf abgelehnt (HTTP %d)." % response.status + hint)
+        data = response.read(MAX_BYTES + 1)
+    except (OSError, ssl.SSLError, http.client.HTTPException):
+        raise CalendarLinkError("Der Kalender konnte nicht abgerufen werden. Prüfe den Link und deine "
+                                "Internetverbindung.") from None
+    finally:
+        conn.close()
+    if len(data) > MAX_BYTES:
+        raise CalendarLinkError("Die Kalenderdatei ist größer als 20 MB.")
+    destination = Path(destination)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    try:
+        temporary.write_bytes(data)
+        try:
+            read_calendar(temporary)
+        except ValueError:
+            raise CalendarLinkError("Unter diesem Link liegt kein Kalender. Kopiere in deinem Kalender die "
+                                    "„Adresse im iCal-Format“ (endet meist auf .ics).") from None
+        os.replace(temporary, destination)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return True

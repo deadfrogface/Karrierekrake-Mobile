@@ -1,0 +1,604 @@
+"""Desktop application bootstrap."""
+
+from __future__ import annotations
+
+import os
+import sys
+from pathlib import Path
+
+# Early frozen diagnostics (before Qt) — opt-in only.
+if getattr(sys, "frozen", False) and os.environ.get("KARRIEREKRAKE_BOOT_DIAG", "").strip() in {
+    "1",
+    "true",
+    "yes",
+}:
+    try:
+        from core.platform_paths import user_data_dir
+        from core.privacy.boot_diagnostics import boot_summary
+
+        _diag = user_data_dir() / "logs"
+        _diag.mkdir(parents=True, exist_ok=True)
+        (_diag / "boot.log").write_text(
+            boot_summary(sys.argv),
+            encoding="utf-8",
+        )
+    except Exception:
+        pass
+
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+# Native updater exchanges complete bundles before Qt or the instance lock.
+if "--native-update-swap" in sys.argv:
+    from core.native_update_install import exchange_bundles
+    if len(sys.argv) != 3 or sys.argv[1] != "--native-update-swap":
+        raise SystemExit(2)
+    raise SystemExit(exchange_bundles(sys.argv[2]))
+
+# Model verification must never open a GUI or acquire its single-instance lock.
+if "--model-probe" in sys.argv:
+    from core.model_probe import main as _model_probe_main
+    raise SystemExit(_model_probe_main([a for a in sys.argv[1:] if a != "--model-probe"]))
+
+# Packaged search-stack self-check (own Indeed/LinkedIn clients, requests, CA bundle; no request),
+# before Qt imports or the GUI single-instance lock.
+if len(sys.argv) > 1 and sys.argv[1] == "--selfcheck-deps":
+    from core.security.search_runtime import selfcheck_main as _selfcheck_main
+    raise SystemExit(_selfcheck_main(sys.argv[2:]))
+
+# Offline backup operations also work in an installed/frozen application,
+# before Qt imports or the GUI single-instance lock. Restore retains the
+# existing empty-directory and integrity requirements.
+if len(sys.argv) > 1 and sys.argv[1] == "--local-backup":
+    from scripts.local_backup_cli import main as _local_backup_main
+    raise SystemExit(_local_backup_main(sys.argv[2:]))
+
+# Packaged acceptance checks (CI) run in the built bundle, before the GUI lock.
+if len(sys.argv) > 1 and sys.argv[1] == "--package-selfcheck":
+    from desktop.package_selfcheck import main as _package_selfcheck_main
+    raise SystemExit(_package_selfcheck_main(sys.argv[2:]))
+
+# High-DPI before QApplication
+os.environ.setdefault("QT_ENABLE_HIGHDPI_SCALING", "1")
+os.environ.setdefault("QT_AUTO_SCREEN_SCALE_FACTOR", "1")
+
+# Windows AppUserModelID — stable taskbar/pin identity matching branded EXE icon.
+if sys.platform == "win32":
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(  # type: ignore[attr-defined]
+            "Karrierekrake.Desktop.1"
+        )
+    except Exception:
+        pass
+
+# Packaged Chromium path before any Playwright import (configure only — no playwright import)
+try:
+    from desktop.services.browser_install import configure_playwright_browsers_path
+
+    configure_playwright_browsers_path()
+except Exception:
+    pass
+
+from PySide6.QtCore import QSharedMemory, Qt
+from PySide6.QtGui import QGuiApplication
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWidgets import QApplication, QMessageBox, QSystemTrayIcon
+
+from desktop.branding import (
+    DATA_DIR_NAME,
+    DISPLAY_NAME,
+    LOCAL_SERVER_NAME,
+    SINGLE_INSTANCE_KEY,
+)
+from desktop.i18n import i18n, install_qt_translator, tr
+from desktop.main_window import MainWindow
+from desktop.services import ConfigService
+from desktop.theme import apply_theme
+
+_INSTANCE_KEY = SINGLE_INSTANCE_KEY
+_INSTANCE_SERVER = LOCAL_SERVER_NAME
+
+
+def acquire_single_instance_lock() -> QSharedMemory | None:
+    """Create the single-instance shared-memory lock.
+
+    Returns the lock object on success, or ``None`` if another live instance
+    already holds it (caller should notify/focus and exit).
+    """
+    shared = QSharedMemory(_INSTANCE_KEY)
+    if shared.attach():
+        if _try_notify_existing_instance():
+            return None
+        # Stale segment after crash — reclaim
+        shared.detach()
+    if not shared.create(1):
+        return None
+    return shared
+
+
+def apply_appearance(app: QApplication, config_service: ConfigService) -> None:
+    cfg = config_service.load()
+    lang = (cfg.settings.language or "de").lower()
+    if lang not in {"de", "en"}:
+        lang = "de"
+    i18n.set_language(lang)
+    install_qt_translator(app, lang)
+    theme_pref = cfg.settings.theme or "system"
+    high_contrast = bool(getattr(cfg.settings, "high_contrast", False))
+    apply_theme(app, theme_pref, high_contrast=high_contrast)
+
+
+def _try_notify_existing_instance() -> bool:
+    """Return True if another instance accepted the raise signal."""
+    socket = QLocalSocket()
+    socket.connectToServer(_INSTANCE_SERVER)
+    if not socket.waitForConnected(400):
+        return False
+    socket.write(b"raise\n")
+    socket.flush()
+    socket.waitForBytesWritten(400)
+    socket.disconnectFromServer()
+    return True
+
+
+def run() -> int:
+    QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+        Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+    )
+    app = QApplication(sys.argv)
+    app.setApplicationName(DISPLAY_NAME)
+    app.setOrganizationName(DATA_DIR_NAME)
+    try:
+        from desktop.tray import app_icon
+
+        icon = app_icon()
+        if icon is not None and not icon.isNull():
+            app.setWindowIcon(icon)
+    except Exception:
+        pass
+    # Quit when the last window closes unless the user opted into tray-minimize.
+    # Tray exit / red-X exit always call ApplicationShutdownManager → app.quit().
+    app.setQuitOnLastWindowClosed(True)
+
+    # Single-instance lock (QSharedMemory + QLocalServer for focus).
+    shared = acquire_single_instance_lock()
+    if shared is None:
+        _try_notify_existing_instance()
+        QMessageBox.warning(None, DISPLAY_NAME, f"{DISPLAY_NAME} läuft bereits.")
+        return 1
+
+    from desktop.services.shutdown import get_shutdown_manager
+    from core.logging import setup_logging
+
+    try:
+        from desktop.paths import ensure_app_dirs
+
+        _dirs = ensure_app_dirs()
+        setup_logging(_dirs["logs"])
+    except RecursionError:
+        raise
+    except Exception:
+        _dirs = {}
+        setup_logging()
+
+    # Windowed EXE has no console — uncaught exceptions must hit the log file.
+    import logging
+    import traceback
+
+    _prev_hook = sys.excepthook
+
+    def _excepthook(exc_type, exc, tb) -> None:  # noqa: ANN001
+        try:
+            logging.getLogger("karrierekrake").error(
+                "Uncaught exception:\n%s",
+                "".join(traceback.format_exception(exc_type, exc, tb)),
+            )
+        except Exception:
+            pass
+        _prev_hook(exc_type, exc, tb)
+
+    sys.excepthook = _excepthook
+
+    shutdown = get_shutdown_manager()
+    app.aboutToQuit.connect(lambda: shutdown.shutdown(reason="aboutToQuit"))
+
+    config_service = ConfigService()
+    apply_appearance(app, config_service)
+
+    # One-shot crash recovery at app start (not on every GUI Database() open).
+    try:
+        from core.database import Database
+
+        Database(config_service.load().db_path, recover=True)
+    except RecursionError:
+        raise
+    except Exception:
+        pass
+
+    tray_available = QSystemTrayIcon.isSystemTrayAvailable()
+    window = MainWindow(config_service)
+    if not tray_available:
+        logging.getLogger("karrierekrake").warning("system_tray_unavailable")
+        window.statusBar().showMessage(tr("tray.unavailable"), 15000)
+    QLocalServer.removeServer(_INSTANCE_SERVER)
+    server = QLocalServer(app)
+    server.listen(_INSTANCE_SERVER)
+
+    def _on_connection() -> None:
+        conn = server.nextPendingConnection()
+        if conn is None:
+            return
+        conn.waitForReadyRead(200)
+        _ = conn.readAll()
+        conn.disconnectFromServer()
+        window.show()
+        window.raise_()
+        window.activateWindow()
+
+    server.newConnection.connect(_on_connection)
+    app._karrierekrake_shared = shared  # type: ignore[attr-defined]
+    app._karrierekrake_server = server  # type: ignore[attr-defined]
+
+    window.show()
+    from PySide6.QtCore import QTimer
+    QTimer.singleShot(0, lambda: _complete_startup(window))
+    return app.exec()
+
+
+def _complete_startup(window) -> None:
+    """Acknowledge a live GUI before onboarding can require human input."""
+    if sys.platform != "win32" and getattr(sys, "frozen", False):
+        from core.native_update_install import acknowledge_startup
+        acknowledge_startup()
+    window.maybe_run_wizard()
+
+
+def main() -> int:
+    # Packaged worker mode: must run before GUI / single-instance lock.
+    # Supervisor spawns ``Karrierekrake.exe --cv-import-child …`` when frozen;
+    # without this branch the child opens the normal app, hits the lock, and
+    # exits 1 with „Karrierekrake läuft bereits“.
+    if "--cv-import-child" in sys.argv:
+        return _run_cv_import_child()
+    if "--report-physical-cores" in sys.argv:
+        return _report_physical_cores()
+    if "--report-llm-load" in sys.argv:
+        return _report_llm_load()
+    if os.environ.get("KARRIEREKRAKE_SMOKE_TEST", "").strip().lower() in {"1", "true", "yes"}:
+        return _smoke_test()
+    if "--smoke-test" in sys.argv:
+        return _smoke_test()
+    if "--smoke-brouter" in sys.argv:
+        from scripts.smoke_brouter_windows import main as _smoke_brouter
+
+        return int(_smoke_brouter())
+    if "--smoke-browser" in sys.argv:
+        return _smoke_browser()
+    if "--smoke-cv-corpus" in sys.argv:
+        return _smoke_cv_corpus()
+    if "--once" in sys.argv:
+        return _run_once_headless()
+    return run()
+
+
+def _report_physical_cores() -> int:
+    """Write the psutil core line and the thread-reserve line. Return 0.
+
+    The packaged EXE is windowed, so CI passes a path and reads that file.
+    Return 1 when the core line is the fallback (psutil missing or ``None``).
+    The second line is ``n_threads=.. n_threads_batch=.. physical=..
+    logical=.. reserve=..``.
+    """
+    from core.cv_llm_runtime import cv_llm_thread_report_line, physical_cores_report_line
+
+    idx = sys.argv.index("--report-physical-cores")
+    cores = physical_cores_report_line()
+    threads = cv_llm_thread_report_line()
+    text = cores + "\n" + threads + "\n"
+    if idx + 1 < len(sys.argv) and not sys.argv[idx + 1].startswith("--"):
+        out = Path(sys.argv[idx + 1])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+    print(text, end="", flush=True)
+    return 0 if "source=psutil " in cores else 1
+
+
+def _report_llm_load() -> int:
+    """Write the bundled llama CPU line. Windowed EXE: CI reads the file.
+
+    Validate fixed AVX2 kernels on x86 and NEON on ARM. Runner-only AVX512
+    or AMX kernels fail the portable CPU check.
+    Model-buffer names are logged by the import (``cv_llm_load``) when a
+    GGUF is loaded; this flag does not load weights.
+    """
+    from core.cv_llm_runtime import llama_build_report_text, llama_build_report_valid
+
+    idx = sys.argv.index("--report-llm-load")
+    text = llama_build_report_text()
+    if idx + 1 < len(sys.argv) and not sys.argv[idx + 1].startswith("--"):
+        out = Path(sys.argv[idx + 1])
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(text, encoding="utf-8")
+    print(text, end="" if text.endswith("\n") else "\n", flush=True)
+    return 0 if llama_build_report_valid(text) else 1
+
+
+def _run_cv_import_child() -> int:
+    """Frozen EXE CV-import worker: no Qt UI, no single-instance lock."""
+    from desktop.cv_import_child import discard_child_stderr
+    from desktop.cv_import_child import run as run_cv_import_child
+
+    discard_child_stderr()
+    child_argv = [a for a in sys.argv[1:] if a != "--cv-import-child"]
+    return int(run_cv_import_child(child_argv))
+
+
+def _run_once_headless() -> int:
+    """Scheduler entrypoint: one pipeline pass using AppData config, no Qt UI.
+
+    Takes the same single-instance lock as the GUI so Task Scheduler ``--once``
+    cannot overlap a live desktop pipeline on the shared AppData DB/YAML.
+    """
+    from PySide6.QtCore import QCoreApplication
+
+    from app.main import run_pipeline
+    from desktop.services import ConfigService
+
+    # QSharedMemory requires a QCoreApplication.
+    app = QCoreApplication.instance() or QCoreApplication(sys.argv)
+    shared = acquire_single_instance_lock()
+    if shared is None:
+        return 0
+    try:
+        cfg = ConfigService().load()
+        if bool(getattr(cfg.settings, "automation_paused", False)):
+            return 0
+        run_pipeline(cfg)
+        return 0
+    finally:
+        # Keep segment alive until process exit; detach explicitly for clarity.
+        try:
+            shared.detach()
+        except Exception:
+            pass
+        _ = app
+
+
+def _smoke_result_paths() -> list[Path]:
+    """Marker files for packaged smoke (AppData first, then next to EXE).
+
+    Windowed onefile bootloaders may return before the child finishes; CI must
+    poll these markers (and a per-run token) instead of trusting process exit.
+    Writing under LOCALAPPDATA isolates concurrent / overlapping smoke runs.
+    """
+    paths: list[Path] = []
+    local = (os.environ.get("LOCALAPPDATA") or "").strip()
+    if local:
+        paths.append(Path(local) / DATA_DIR_NAME / "smoke_test_result.txt")
+    else:
+        from core.platform_paths import user_data_dir
+
+        paths.append(user_data_dir() / "smoke_test_result.txt")
+    try:
+        paths.append(Path(sys.executable).resolve().parent / "smoke_test_result.txt")
+    except Exception:
+        pass
+    # Deduplicate while preserving order
+    seen: set[str] = set()
+    out: list[Path] = []
+    for p in paths:
+        key = str(p)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(p)
+    return out
+
+
+def _write_smoke_result(lines: list[str]) -> None:
+    text = "\n".join(lines)
+    for path in _smoke_result_paths():
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        except Exception:
+            continue
+
+
+def _smoke_test() -> int:
+    """Packaged/CI smoke: offscreen Qt + MainWindow + DB schema, then exit 0.
+
+    Uses LOCALAPPDATA from the environment when provided (isolated CI dirs).
+    Never submits applications. Never touches a developer's real profile unless
+    LOCALAPPDATA was left at the process default (CI must always override it).
+    """
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    token = (os.environ.get("KARRIEREKRAKE_SMOKE_TOKEN") or "").strip()
+    lines: list[str] = ["SMOKE_START"]
+    if token:
+        lines.append(f"token={token}")
+    # Write early so CI can distinguish boot crash vs later failure.
+    _write_smoke_result(lines)
+    try:
+        from PySide6.QtWidgets import QApplication
+
+        from core.database import Database
+        from desktop.i18n import i18n
+        from desktop.main_window import MainWindow
+        from desktop.services import ConfigService
+        from desktop.theme import stylesheet_for
+
+        # Exercise free protocol dependencies in the packaged EXE without accounts.
+        from icalendar import Calendar
+        from integrations.calendar.caldav.dav import DAVClient
+        from integrations.calendar.caldav.recurrence import expand
+        from integrations.mail.imap.outlook_auth import IMAP_SCOPE  # noqa: F401 - the packaged program must contain it
+        from integrations.calendar.local_ics import LocalIcsCalendarAdapter  # noqa: F401 - the packaged program must contain it
+        from integrations.calendar.caldav.client import LiveCaldavClient  # noqa: F401 - the packaged program must contain it
+        from desktop.widgets.free_mail_credentials import FreeMailCredentialsDialog  # noqa: F401 - the packaged program must contain it
+        from datetime import datetime as _dt, timezone as _tz
+        expand([Calendar().to_ical().decode()], _dt(2026, 1, 1, tzinfo=_tz.utc), _dt(2026, 1, 2, tzinfo=_tz.utc), _tz.utc)
+        dav = DAVClient(url="https://calendar.example.org/", timeout=1)
+        dav.close()
+        import random
+        import secrets
+
+        random.Random(0).random()
+        secrets.token_urlsafe(16)
+        from core.security.diskcache_guard import guard_diskcache, UnsafeCacheSerializationError
+        import diskcache.core as cache_core
+        guard_diskcache()
+        try:
+            cache_core.pickle.loads(b"N.")  # inert None, must still be rejected
+        except UnsafeCacheSerializationError:
+            lines.append("diskcache_pickle_guard=ok")
+        else:
+            raise RuntimeError("diskcache_pickle_guard_missing")
+        from core.security.crypto_runtime import verify_crypto_runtime
+        crypto = verify_crypto_runtime()
+        lines.append("crypto_runtime=ok cryptography=" + crypto['cryptography']
+                     + " openssl=" + crypto['openssl'] + " ed25519=" + crypto['ed25519'])
+        lines.append('python_runtime=' + crypto['python'] + ' stdlib_openssl=' + crypto['stdlib_openssl'])
+        from core.security.search_runtime import verify_search_runtime
+        transport = verify_search_runtime()
+        lines.append('search_transport=ok transport=' + transport['transport'] + ' requests=' + transport['requests'])
+        from core.security.llama_surface import verify_llama_surface
+        verify_llama_surface()
+        lines.append('llama_desktop_surface=ok rpc=false server_payload=false')
+        lines.append("stdlib_runtime=ok (random/secrets)")
+        lines.append("free_protocol_runtime=ok (IMAP/CalDAV/ICS imports; no live account)")
+        app = QApplication.instance() or QApplication(sys.argv)
+        cfg_service = ConfigService()
+        cfg = cfg_service.load()
+        i18n.set_language(cfg.settings.language or "de")
+        app.setStyleSheet(stylesheet_for(cfg.settings.theme or "system"))
+
+        db = Database(cfg.db_path)
+        # Force schema init
+        _ = db.dashboard_stats()
+        with db.connection() as conn:
+            cols = {r[1] for r in conn.execute("PRAGMA table_info(jobs)")}
+        if "run_id" not in cols:
+            raise RuntimeError("jobs.run_id missing after init")
+
+        window = MainWindow(cfg_service)
+        # Navigate all pages
+        for idx in range(window.stack.count()):
+            window.stack.setCurrentIndex(idx)
+            page = window.stack.widget(idx)
+            if hasattr(page, "refresh"):
+                try:
+                    page.refresh()
+                except RecursionError:
+                    raise
+                except Exception:
+                    pass
+            if hasattr(page, "load_from_config"):
+                try:
+                    page.load_from_config()
+                except RecursionError:
+                    raise
+                except Exception:
+                    pass
+        # Theme / language smoke
+        for theme in ("system", "light", "dark"):
+            apply_theme(app, theme)
+        for lang in ("en", "de"):
+            i18n.set_language(lang)
+            window.retranslate_ui()
+
+        lines.append(f"db={cfg.db_path}")
+        lines.append(f"pages={window.stack.count()}")
+        lines.append("SMOKE_TEST_OK")
+        _write_smoke_result(lines)
+        print("\n".join(lines), flush=True)
+        window.close()
+        app.quit()
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"FAIL: {exc}")
+        _write_smoke_result(lines)
+        print("\n".join(lines), flush=True)
+        return 1
+
+
+def _smoke_cv_corpus() -> int:
+    """Headless packaged check: parse fictional corpus PDFs passed as argv paths."""
+    from core.cv_parser import import_cv
+
+    args = sys.argv[sys.argv.index("--smoke-cv-corpus") + 1 :]
+    paths = [Path(a) for a in args if a and not a.startswith("--")]
+    log_path = Path(sys.executable).resolve().parent / "smoke_cv_corpus_result.txt"
+    lines: list[str] = []
+    try:
+        if not paths:
+            lines.append("FAIL: no PDF paths given after --smoke-cv-corpus")
+            log_path.write_text("\n".join(lines), encoding="utf-8")
+            return 1
+        for path in paths:
+            if not path.is_file():
+                lines.append(f"FAIL missing: {path}")
+                log_path.write_text("\n".join(lines), encoding="utf-8")
+                return 1
+            parsed = import_cv(path)
+            name = f"{(parsed.get('personal') or {}).get('first_name', '')} {(parsed.get('personal') or {}).get('last_name', '')}".strip()
+            lines.append(
+                f"OK {path.name} name={name!r} "
+                f"langs={len(parsed.get('languages') or [])} "
+                f"work={len(parsed.get('work_experience') or [])} "
+                f"edu={len(parsed.get('education') or [])}"
+            )
+        lines.append("SMOKE_CV_CORPUS_OK")
+        log_path.write_text("\n".join(lines), encoding="utf-8")
+        print("\n".join(lines))
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"FAIL: {exc}")
+        try:
+            log_path.write_text("\n".join(lines), encoding="utf-8")
+        except Exception:
+            pass
+        print("\n".join(lines))
+        return 1
+
+
+def _smoke_browser() -> int:
+    """Headless packaged check: detect Chromium and open about:blank."""
+    import tempfile
+
+    from desktop.services.browser_install import check_browser, configure_playwright_browsers_path
+    from browser.browser_manager import BrowserManager
+
+    log_path = Path(sys.executable).resolve().parent / "smoke_browser_result.txt"
+    lines: list[str] = []
+    try:
+        configure_playwright_browsers_path()
+        ok, msg = check_browser()
+        lines.append(msg)
+        if not ok:
+            log_path.write_text("\n".join(lines), encoding="utf-8")
+            return 1
+        with tempfile.TemporaryDirectory() as tmp:
+            mgr = BrowserManager(Path(tmp) / "profile", headless=True)
+            try:
+                page = mgr.get_page()
+                page.goto("about:blank")
+                lines.append(f"SMOKE_BROWSER_OK {page.url}")
+            finally:
+                mgr.close()
+        log_path.write_text("\n".join(lines), encoding="utf-8")
+        return 0
+    except Exception as exc:  # noqa: BLE001
+        lines.append(f"FAIL: {exc}")
+        try:
+            log_path.write_text("\n".join(lines), encoding="utf-8")
+        except Exception:
+            pass
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

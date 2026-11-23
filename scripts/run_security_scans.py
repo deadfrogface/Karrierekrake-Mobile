@@ -1,0 +1,388 @@
+#!/usr/bin/env python3
+"""Run supply-chain / SAST / secret scanners for CI.
+
+Exits non-zero on unresolved High/Critical dependency findings.
+Ignores are loaded only from scripts/security_ignore_vulns.txt and must be
+documented in docs/security/dependency-exceptions.md.
+Does not install malicious packages for testing.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+EXCEPTIONS_DOC = ROOT / "docs" / "security" / "dependency-exceptions.md"
+IGNORE_FILE = ROOT / "scripts" / "security_ignore_vulns.txt"
+
+
+def _run(cmd: list[str], *, check: bool = True) -> subprocess.CompletedProcess[str]:
+    print("+", " ".join(cmd), flush=True)
+    return subprocess.run(
+        cmd,
+        cwd=str(ROOT),
+        text=True,
+        capture_output=False,
+        check=check,
+    )
+
+
+def _load_ignores() -> list[str]:
+    if not IGNORE_FILE.is_file():
+        return []
+    out: list[str] = []
+    for line in IGNORE_FILE.read_text(encoding="utf-8").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        out.append(s)
+    if out and not EXCEPTIONS_DOC.is_file():
+        raise SystemExit("security_ignore_vulns.txt present but exceptions doc missing")
+    doc = EXCEPTIONS_DOC.read_text(encoding="utf-8") if EXCEPTIONS_DOC.is_file() else ""
+    for vid in out:
+        if vid not in doc:
+            raise SystemExit(
+                f"ignore {vid} is not documented in {EXCEPTIONS_DOC} — refuse silent allowlist"
+            )
+    return out
+
+
+def run_pip_audit() -> int:
+    """Audit the *currently installed* environment (CI installs runtime first)."""
+    out = ROOT / "artifacts"
+    out.mkdir(parents=True, exist_ok=True)
+    json_path = out / "pip-audit.json"
+    json_path.unlink(missing_ok=True)  # never publish stale findings from an earlier run
+    ignores = _load_ignores()
+    cmd = [
+        sys.executable,
+        "-m",
+        "pip_audit",
+        "-l",
+        "--progress-spinner",
+        "off",
+        "-f",
+        "json",
+        "-o",
+        str(json_path),
+    ]
+    for vid in ignores:
+        cmd.extend(["--ignore-vuln", vid])
+    try:
+        _run(cmd, check=True)
+        return 0
+    except subprocess.CalledProcessError:
+        human = [
+            sys.executable,
+            "-m",
+            "pip_audit",
+            "-l",
+            "--progress-spinner",
+            "off",
+        ]
+        for vid in ignores:
+            human.extend(["--ignore-vuln", vid])
+        _run(human, check=False)
+        print(
+            "pip-audit reported unresolved vulnerabilities "
+            "(High/Critical are release blockers; see dependency-exceptions.md)",
+            file=sys.stderr,
+        )
+        return 1
+
+
+def run_bandit() -> int:
+    """Gate: no finding of medium or high severity (medium or high confidence).
+
+    Every accepted pattern carries a ``# nosec <rule> - <reason>`` note at its line, so a new finding
+    fails the build instead of disappearing among known ones.
+    """
+    targets = ["core", "guenther", "integrations", "search", "desktop", "scripts"]
+    existing = [t for t in targets if (ROOT / t).exists()]
+    try:
+        _run(
+            [
+                sys.executable,
+                "-m",
+                "bandit",
+                "-q",
+                "-r",
+                *existing,
+                "-ll",
+                "-ii",
+                "-c",
+                str(ROOT / ".bandit"),
+            ],
+            check=True,
+        )
+        return 0
+    except subprocess.CalledProcessError:
+        return 1
+
+
+def run_gitleaks() -> int:
+    exe = shutil.which("gitleaks")
+    if not exe:
+        print("gitleaks not installed on PATH", file=sys.stderr)
+        return 1
+    report = ROOT / "artifacts" / "gitleaks.json"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    config = ROOT / ".gitleaks.toml"
+    cmd = [
+        exe,
+        "detect",
+        "--source",
+        str(ROOT),
+        "--no-git",
+        "--redact",
+        "-f",
+        "json",
+        "-r",
+        str(report),
+        "-v",
+    ]
+    if config.is_file():
+        cmd.extend(["-c", str(config)])
+    try:
+        _run(cmd, check=True)
+        return 0
+    except subprocess.CalledProcessError:
+        return 1
+
+
+def _write_runtime_freeze(path: Path) -> Path:
+    """Write installed packages relevant to the shipped runtime surface."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = subprocess.check_output(
+        [sys.executable, "-m", "pip", "freeze"],
+        cwd=str(ROOT),
+        text=True,
+    )
+    # Drop install/CI tooling, but NEVER remove shipped runtime dependencies
+    # such as llama-cpp-python: its native binaries are part of the EXE.
+    # Ignore only known tooling that is not shipped.
+    skip_prefixes = (
+        "pip==",
+        "pip-",
+        "pip_",
+        "setuptools==",
+        "wheel==",
+        "pip-audit==",
+        "pip_audit==",
+        "bandit==",
+        "pytest==",
+        "pyinstaller==",
+        "ruff==",
+        "radon==",
+        "vulture==",
+        "hypothesis==",
+        "freezegun==",
+        "jsonschema==",
+        "pipdeptree==",
+        "dspy==",
+        "dspy-ai==",
+    )
+    lines: list[str] = []
+    for line in raw.splitlines():
+        low = line.strip().lower()
+        if not low or low.startswith("#"):
+            continue
+        if any(low.startswith(p.lower()) for p in skip_prefixes):
+            continue
+        lines.append(line.strip())
+    path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return path
+
+
+def _osv_max_score(vuln: dict) -> float:
+    """Conservative score: unknown severity requires manual review."""
+    scores: list[float] = []
+    for sev in vuln.get("severity") or []:
+        raw = str(sev.get("score") or "")
+        try:
+            value = float(raw)
+        except ValueError:
+            value = None
+        if value is not None and 0 <= value <= 10:
+            scores.append(value)
+    db = vuln.get("database_specific") or {}
+    label = str(db.get("severity") or "").upper()
+    mapping = {"CRITICAL": 9.5, "HIGH": 8.0, "MODERATE": 5.0,
+               "MEDIUM": 5.0, "LOW": 2.0}
+    if label in mapping:
+        scores.append(mapping[label])
+    # CVSS vectors are not numeric base scores. Never infer low severity.
+    return max(scores) if scores else 10.0
+
+
+def run_osv() -> int:
+    exe = shutil.which("osv-scanner") or shutil.which("osv-scanner.exe")
+    if not exe:
+        print("osv-scanner not installed on PATH", file=sys.stderr)
+        return 1
+    freeze = _write_runtime_freeze(ROOT / "artifacts" / "runtime-freeze.txt")
+    json_path = ROOT / "artifacts" / "osv-scanner.json"
+    json_path.unlink(missing_ok=True)  # a scanner crash must not pass using old JSON
+    cmd = [
+        exe,
+        "scan",
+        "source",
+        "-L",
+        f"requirements.txt:{freeze}",
+        "-f",
+        "json",
+        "--output-file",
+        str(json_path),
+    ]
+    # Always emit human table too for CI logs
+    table_cmd = [
+        exe,
+        "scan",
+        "source",
+        "-L",
+        f"requirements.txt:{freeze}",
+        "-f",
+        "table",
+    ]
+    _run(table_cmd, check=False)
+    scan_result = _run(cmd, check=False)
+    if not json_path.is_file():
+        print("osv-scanner produced no JSON report", file=sys.stderr)
+        return 1
+    try:
+        payload = json.loads(json_path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        print("osv-scanner JSON unreadable", file=sys.stderr)
+        return 1
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("results"), list):
+        print("osv-scanner returned an invalid or incomplete results structure", file=sys.stderr)
+        return 1
+    if scan_result.returncode not in (0, 1):
+        print(f"osv-scanner failed with exit code {scan_result.returncode}", file=sys.stderr)
+        return 1
+
+    # A valid outer object is insufficient: truncated nested rows or an empty
+    # successful scan must not hide a nonempty runtime inventory.
+    vulnerability_count = 0
+    package_count = 0
+    for result in payload["results"]:
+        if not isinstance(result, dict) or not isinstance(result.get("packages"), list):
+            print("osv-scanner returned malformed package results", file=sys.stderr)
+            return 1
+        for package in result["packages"]:
+            if not isinstance(package, dict) or not isinstance(package.get("package"), dict):
+                return 1
+            identity = package["package"]
+            if not all(isinstance(identity.get(key), str) and identity[key].strip()
+                       for key in ("name", "version")):
+                return 1
+            vulnerabilities = package.get("vulnerabilities", [])
+            if not isinstance(vulnerabilities, list):
+                return 1
+            for vuln in vulnerabilities:
+                if (not isinstance(vuln, dict) or not isinstance(vuln.get("id"), str)
+                        or not vuln["id"].strip()
+                        or not isinstance(vuln.get("severity", []), list)
+                        or not all(isinstance(s, dict) for s in vuln.get("severity", []))
+                        or not isinstance(vuln.get("database_specific", {}), dict)
+                        or not isinstance(vuln.get("aliases", []), list)
+                        or not all(isinstance(a, str) for a in vuln.get("aliases", []))):
+                    return 1
+            vulnerability_count += len(vulnerabilities)
+            package_count += 1
+    if not package_count or (scan_result.returncode == 1 and not vulnerability_count):
+        print("osv-scanner did not substantiate its runtime scan result", file=sys.stderr)
+        return 1
+
+    high_hits: list[str] = []
+    low_hits: list[str] = []
+    for result in payload.get("results") or []:
+        for pkg in result.get("packages") or []:
+            name = (pkg.get("package") or {}).get("name") or "?"
+            version = (pkg.get("package") or {}).get("version") or "?"
+            vulnerabilities = pkg.get("vulnerabilities") or []
+            # A PYSEC/GHSA pair can refer to one advisory. Use the score
+            # from the explicitly rated alias, never assume unknown == low.
+            known_alias_scores = {}
+            for vuln in vulnerabilities:
+                score = _osv_max_score(vuln)
+                if score < 10.0:
+                    for alias in [vuln.get("id"), *(vuln.get("aliases") or [])]:
+                        if alias:
+                            known_alias_scores[str(alias)] = max(
+                                score, known_alias_scores.get(str(alias), 0.0))
+            for vuln in vulnerabilities:
+                vid = str(vuln.get("id") or "?")
+                score = _osv_max_score(vuln)
+                if score == 10.0:
+                    rated = [known_alias_scores[a] for a in
+                             [vid, *(vuln.get("aliases") or [])]
+                             if a in known_alias_scores]
+                    if rated:
+                        score = max(rated)
+                row = f"{name}=={version} {vid} score~={score:.1f}"
+                if score >= 7.0:
+                    high_hits.append(row)
+                else:
+                    low_hits.append(row)
+
+    if low_hits:
+        print(f"OSV non-blocking findings ({len(low_hits)} <7.0):")
+        for row in low_hits[:30]:
+            print(" -", row)
+    if high_hits:
+        print("OSV High/Critical findings (release blockers):", file=sys.stderr)
+        for row in high_hits:
+            print(" -", row, file=sys.stderr)
+        print(
+            "Document reviewed non-applicable cases in docs/security/dependency-exceptions.md",
+            file=sys.stderr,
+        )
+        return 1
+    print("OSV: no High/Critical findings on runtime freeze")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--only",
+        choices=("pip-audit", "bandit", "gitleaks", "osv", "all"),
+        default="all",
+    )
+    args = parser.parse_args()
+    os.makedirs(ROOT / "artifacts", exist_ok=True)
+    steps = {
+        "pip-audit": run_pip_audit,
+        "bandit": run_bandit,
+        "gitleaks": run_gitleaks,
+        "osv": run_osv,
+    }
+    codes: list[int] = []
+    selected = list(steps.items()) if args.only == "all" else [(args.only, steps[args.only])]
+    for name, fn in selected:
+        print(f"\n=== {name} ===", flush=True)
+        codes.append(fn())
+    worst = max(codes) if codes else 0
+    summary = {
+        "results": {name: code for (name, _), code in zip(selected, codes)},
+        "ok": worst == 0,
+    }
+    (ROOT / "artifacts" / "security-scan-summary.json").write_text(
+        json.dumps(summary, indent=2),
+        encoding="utf-8",
+    )
+    print(json.dumps(summary, indent=2))
+    return worst
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+ 

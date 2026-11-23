@@ -1,0 +1,3245 @@
+"""Central translation service for the desktop UI."""
+
+from __future__ import annotations
+
+from typing import Callable
+
+# Keep keys stable; values are user-facing strings only.
+TRANSLATIONS: dict[str, dict[str, str]] = {
+    "de": {
+        "app.name": "Karrierekrake",
+        "nav.dashboard": "Übersicht",
+        "nav.overview": "Übersicht",
+        "nav.jobs": "Jobs",
+        "nav.applications": "Bewerbungen",
+        "nav.inbox": "Postfach",
+        "nav.lifecycle": "Lebenszyklus",
+        "nav.guenther": "Günther",
+        "nav.profile": "Profil",
+        "nav.search": "Suche",
+        "nav.settings": "Einstellungen",
+        "nav.logs": "Protokolle",
+        "nav.help": "Hilfe",
+        "inbox.subtitle": "Nachrichten zuordnen, Entwürfe prüfen — kein stilles Best-Match.",
+        "inbox.refresh_tooltip": "Postfach aktualisieren",
+        "inbox.search_placeholder": "Nachrichten durchsuchen…",
+        "inbox.mirrored_account": "Lokale Kopie deiner Mails",
+        "inbox.linked_application": "Zugeordnete Bewerbung",
+        "inbox.open_application": "Bewerbung öffnen",
+        "inbox.no_linked_case": "Noch keiner Bewerbung zugeordnet",
+        "inbox.no_selection_title": "Keine Nachricht ausgewählt",
+        "inbox.no_selection_body": "Wähle links eine E-Mail, um Details und Aktionen zu sehen.",
+        "inbox.chip_review": "? Zuordnung prüfen",
+        "inbox.chip_linked": "✓ Zugeordnet",
+        "inbox.chip_unlinked": "Nicht zugeordnet",
+        "inbox.action_prepare_reply": "Antwort vorbereiten",
+        "inbox.action_review_association": "Zuordnung prüfen",
+        "inbox.hint_needs_association": "Diese Nachricht konnte nicht sicher zugeordnet werden.",
+        "inbox.hint_prepare_reply": "Antwort-Entwurf vorbereiten — Senden nur nach Freigabe.",
+        "inbox.hint_interview": "Interview-Kontext erkannt — Vorbereitung und Termin nur nach Freigabe.",
+        "inbox.more_actions": "Weitere Aktionen",
+        "inbox.refresh_failed": "Aktualisierung fehlgeschlagen",
+        "inbox.empty_title": "Keine neuen Bewerbungsnachrichten",
+        "inbox.empty_body": "Sobald Karrierekrake Mails spiegelt, erscheinen sie hier zur ruhigen Zuordnung.",
+        "jobs.open_search_intent": "Suchparameter…",
+        "search.settings": "Sucheinstellungen",
+        "jobs.section_result_filters": "ERGEBNISFILTER (bereits gefundene Jobs)",
+        "jobs.more_filters": "Weitere Filter",
+        "jobs.sort_label": "Sortierung:",
+        "jobs.sort_match_desc": "Match (hoch → niedrig)",
+        "jobs.sort_match_asc": "Match (niedrig → hoch)",
+        "jobs.sort_distance_near": "Entfernung (nah → weit)",
+        "jobs.sort_distance_far": "Entfernung (weit → nah)",
+        "jobs.sort_newest": "Neueste zuerst",
+        "settings.open_diagnose_logs": "Protokolle öffnen (Diagnose)",
+        "settings.nav.general": "Allgemein",
+        "settings.nav.automation": "Automation",
+        "settings.nav.communication": "Kommunikation & Termine",
+        "settings.nav.integrations": "Integrationen",
+        "settings.nav.privacy": "Daten & Datenschutz",
+        "settings.nav.advanced": "Erweitert",
+        "settings.safety_limits": "Sicherheitsgrenzen (Erweitert)",
+        "settings.danger_zone": "Gefahrenbereich",
+        "lifecycle.subtitle": "Bewerbungsfälle, E-Mail-Zuordnung und Nachfass-Vorschläge (kein Auto-Versand).",
+        "lifecycle.followups": "Nachfassen vorschlagen",
+        "lifecycle.link_email": "E-Mail zuordnen",
+        "lifecycle.draft_reply": "Antwort-Entwurf",
+        "lifecycle.interview_prep": "Interview-Prep",
+        "lifecycle.col.status": "Status",
+        "lifecycle.col.company": "Firma",
+        "lifecycle.col.position": "Stelle",
+        "lifecycle.col.updated": "Aktualisiert",
+        "lifecycle.col.subject": "Betreff",
+        "lifecycle.col.sender": "Absender",
+        "lifecycle.col.category": "Kategorie",
+        "lifecycle.stats": "Fälle: {cases} · Mehrdeutige E-Mails: {ambiguous} · Offene Aufgaben: {tasks}",
+        "lifecycle.no_tasks": "Keine offenen Aufgaben.",
+        "lifecycle.followups_done": "{n} Nachfass-/Ghosting-Vorschläge erzeugt (kein Versand).",
+        "lifecycle.select_email": "Bitte eine E-Mail wählen.",
+        "lifecycle.select_case": "Bitte einen Bewerbungsfall wählen.",
+        "assoc.title": "Zuordnung prüfen",
+        "assoc.alert_title": "Zuordnung unklar",
+        "assoc.alert_body": (
+            "Die Absenderfirma betreut mehrere offene Bewerbungen. "
+            "Bitte wähle die passende Bewerbung — kein stilles Best-Match."
+        ),
+        "assoc.from": "Von",
+        "assoc.subject": "Betreff",
+        "assoc.which_application": "Zu welcher Bewerbung gehört diese Nachricht?",
+        "assoc.none": "Keiner Bewerbung zuordnen",
+        "assoc.no_guess": "Ohne deine Auswahl wird nichts automatisiert verknüpft.",
+        "assoc.confirm": "Zuordnung bestätigen",
+        "assoc.left_unlinked": "Nachricht bleibt unzugeordnet — du kannst später erneut prüfen.",
+        "interview.title": "Interview vorbereiten",
+        "interview.status_received": "Interviewanfrage erhalten",
+        "interview.scheduling": "Termin & Einladung",
+        "interview.no_excerpt": "Keine E-Mail-Auszug verfügbar.",
+        "interview.calendar_hint": "Terminvorschlag nur nach Freigabe — kein stiller Kalender-Eintrag.",
+        "interview.prep": "Gesprächspunkte",
+        "interview.no_points": "Noch keine Gesprächspunkte aus dem Match abgeleitet.",
+        "interview.gaps": "Offene Punkte",
+        "interview.notes_placeholder": "Eigene Notizen für das Gespräch…",
+        "interview.close": "Schließen",
+        "interview.draft_reply": "Antwort-Entwurf",
+        "status.ready": "Bereit",
+        "status.running": "Läuft…",
+        "status.apply_starting": "Bewerbungslauf startet…",
+        "status.apply_test_starting": "Bewerbungstest startet (Dry-Run)…",
+        "status.search_starting": "Suche startet…",
+        "msg.no_job_titles": "Keine Suchbegriffe: Wunschberufe setzen oder Profil mit Erfahrung/Skills für die Entdeckungssuche füllen.",
+        "msg.no_search_location": "Kein Wohnort und Remote nicht erlaubt — Suche kann keine Orte abfragen.",
+        "msg.empty_queries": "Suche abgebrochen: leere Suchanfragen (Berufe/Ort prüfen). Quellen wurden nicht als OK_EMPTY gewertet.",
+        "btn.suggest_titles": "Berufsvorschläge aus Lebenslauf",
+        "msg.titles_suggested": "Berufsvorschläge wurden ergänzt (manuelle Einträge bleiben erhalten).",
+        "status.done": "Fertig",
+        "status.error": "Fehler",
+        "status.paused": "Automation pausiert",
+        "status.resumed": "Automation fortgesetzt",
+        "tray.running": "Läuft weiter im Infobereich.",
+        "tray.unavailable": "Kein Infobereich verfügbar. Beim Schließen wird die Anwendung beendet.",
+        "tray.open": "Karrierekrake öffnen",
+        "tray.search": "Jetzt suchen",
+        "tray.pause": "Automation pausieren",
+        "tray.resume": "Automation fortsetzen",
+        "tray.exit": "Beenden",
+        "btn.search_now": "Jetzt suchen",
+        "btn.cancel_search": "Suche abbrechen",
+        "btn.clear_jobs": "Jobs leeren",
+        "btn.start_apply": "Bewerbungen starten",
+        "btn.apply_test": "Bewerbungstest",
+        "btn.pause_automation": "Automation pausieren",
+        "btn.resume_automation": "Automation fortsetzen",
+        "btn.review_queue": "Zur Prüfung",
+        "btn.save": "Speichern",
+        "btn.cancel": "Abbrechen",
+        "btn.ok": "OK",
+        "btn.save_profile": "Profil speichern",
+        "btn.save_search": "Suchwunsch speichern",
+        "btn.save_settings": "Einstellungen speichern",
+        "btn.add": "Hinzufügen",
+        "btn.remove": "Entfernen",
+        "a11y.list_editor": "Eintragsliste",
+        "a11y.status_bar": "Anwendungsstatus",
+        "a11y.high_contrast": "Hoher Kontrast",
+        "a11y.high_contrast_hint": (
+            "Verstärkte Rahmen und Unterstreichungen für Status/Fehler. "
+            "Kein WCAG-Konformitätsnachweis."
+        ),
+        "btn.edit": "Bearbeiten",
+        "btn.filter": "Filtern",
+        "btn.open_job": "Job öffnen",
+        "btn.refresh": "Aktualisieren",
+        "btn.open_manual": "Manuell öffnen",
+        "btn.preview_apply": "Bewerbungsvorschau",
+        "btn.close": "Schließen",
+        "btn.select_cv": "Lebenslauf auswählen",
+        "btn.import_cv": "Profil aus Lebenslauf einlesen",
+        "btn.update_cv": "Profil aus Lebenslauf aktualisieren",
+        "btn.install_browser": "Browser-Automatisierung installieren",
+        "btn.check_browser": "Browser-Komponente prüfen",
+        "btn.repair_browser": "Browser-Automatisierung installieren / reparieren",
+        "dash.found_today": "Heute gefunden",
+        "dash.this_run": "Dieser Lauf",
+        "dash.new": "Neu",
+        "dash.matches": "Treffer ≥75%",
+        "dash.kpi_matches": "Passende Jobs",
+        "dash.kpi_matches_hint": "{n} neu heute",
+        "dash.kpi_applications": "Laufende Bewerbungen",
+        "dash.kpi_applications_hint": "In aktiven Prozessen",
+        "dash.kpi_replies": "Neue Antworten",
+        "dash.kpi_replies_hint": "Zuordnung oder Prüfung nötig",
+        "dash.kpi_review_hint": "Bewerbungen bereit",
+        "dash.kpi_review_hint_captcha": "davon {n} CAPTCHA",
+        "dash.section_queue": "WARTESCHLANGE & AKTIONEN",
+        "dash.section_kpis": "AKTUELLE KENNZAHLEN",
+        "dash.section_advanced": "ERWEITERT / DIAGNOSE",
+        "dash.more_actions": "Weitere Aktionen…",
+        "dash.greeting": "Guten Morgen.",
+        "dash.greeting_sub": "Hier ist dein aktueller Status.",
+        "dash.search_starting": "Suche wird gestartet…",
+        "dash.search_cancelling": "Suche wird beendet…",
+        "dash.search_running_title": "Suche läuft…",
+        "dash.search_running_body": "Quellen werden geprüft. Du kannst die Suche jederzeit abbrechen.",
+        "btn.search_again": "Erneut suchen",
+        "jobs.empty_title": "Keine passenden Jobs gefunden.",
+        "jobs.empty_body": "Keine Stelle erfüllt aktuell alle Filter. Passe Filter an oder öffne die Suchparameter.",
+        "jobs.empty_adjust_filters": "Filter anpassen",
+        "jobs.empty_search_intent": "Suchparameter…",
+        "jobs.empty_widen": "Umkreis erweitern",
+        "apps.empty_title": "Noch keine Bewerbungen",
+        "apps.empty_body": "Sobald du dich bewirbst, erscheinen deine Bewerbungen hier.",
+        "apps.empty_cta": "Jobs ansehen",
+        "btn.review_only": "Nur mit Prüfbedarf",
+        "dash.applied": "Beworben",
+        "dash.needs_review": "Prüfung nötig",
+        "dash.captcha": "CAPTCHA",
+        "dash.errors": "Fehler",
+        "dash.mode": "Modus",
+        "dash.dry_run": "Dry-Run",
+        "dash.automation": "Automation",
+        "dash.on": "an",
+        "dash.off": "aus",
+        "dash.paused": "pausiert",
+        "dash.active": "aktiv",
+        "dash.last_search": "Letzte Suche",
+        "dash.next_run": "Nächster geplanter Lauf",
+        "dash.home_missing": (
+            "Noch kein Wohnort hinterlegt. Trage im Profil Ort oder Postleitzahl ein, "
+            "damit Jobs nach Entfernung gefiltert werden können."
+        ),
+        "dash.kpi_open_hint": "Zum Öffnen klicken",
+        "dash.home_plz_hint": (
+            "Standort nicht prüfbar. Bitte Postleitzahl angeben — "
+            "ohne PLZ wird kein Ort geschätzt und der Umkreisfilter übersprungen."
+        ),
+        "dash.home_resolved": "Wohnort aufgelöst: {place}. Distanzfilter aktiv.",
+        "dash.home_checking": "Entfernung wird ermittelt …",
+        "dash.home_index_unavailable": (
+            "Für {country} fehlen die Standortdaten. "
+            "Die Suche läuft deshalb ohne Entfernungsfilter."
+        ),
+        "dash.home_not_found": (
+            "„{place}“ wurde nicht gefunden. Die Suche läuft ohne Entfernungsfilter."
+        ),
+        "dash.home_change_place": "Anderen Ort eintragen",
+        "jobs.distance_skipped": "Umkreis übersprungen — bitte PLZ angeben",
+        "dash.run_stats": "Lauf-Statistik",
+        "apps.preview_title": "Bewerbung vorbereiten",
+        "apps.preview_prepare_title": "Bewerbung vorbereiten",
+        "apps.preview_will_submit": "Finales Absenden wäre erlaubt.",
+        "apps.preview_no_submit": "Finales Absenden ist blockiert.",
+        "apps.preview_status_draft": "Entwurf – wird nicht versendet",
+        "apps.preview_status_ready": "Entwurf geprüft – Versand nur nach Freigabe",
+        "apps.preview_confirm_draft": "Entwurf bestätigen",
+        "apps.preview_status_check": "Prüfen nötig",
+        "apps.preview_claim_blocked": (
+            "‚{sentence}‘\n"
+            "Bestätige Klasse {classes} im Führerschein-Feld oder nimm den Eintrag aus deinen Skills."
+        ),
+        "apps.preview_findings_intro": (
+            "Bitte prüfe jeden Hinweis einzeln. „Entwurf bestätigen“ geht erst, "
+            "wenn du jeden Hinweis bestätigt hast."
+        ),
+        "apps.preview_finding_confirm": "Trotzdem freigeben",
+        "apps.preview_finding_save_failed": (
+            "Bestätigung konnte nicht gespeichert werden. Der Satz ist noch nicht freigegeben. "
+            "Bitte erneut versuchen."
+        ),
+        "apps.preview_finding_line": "„{sentence}“\n{reason}",
+        "apps.preview_finding_a11y": "Trotzdem freigeben: „{sentence}“. {reason}",
+        "apps.preview_reason_native_level": "Im Profil steht {profile}, im Brief Muttersprache.",
+        "apps.preview_reason_native_missing": (
+            "Im Profil steht {language} nicht als Muttersprache, im Brief Muttersprache."
+        ),
+        "apps.preview_reason_native_unnamed": (
+            "Der Brief nennt eine Muttersprache, die dein Profil nicht als Muttersprache bestätigt."
+        ),
+        "apps.preview_reason_gender": (
+            "Der Brief beschreibt dich mit einer geschlechtsbezogenen Form. "
+            "Im Profil steht dazu nichts."
+        ),
+        "apps.preview_reason_salutation": (
+            "Die Anzeige nennt eine Ansprechperson. Erwartet ist: „{expected}“."
+        ),
+        "apps.preview_reason_salutation_generic": "Die Anrede passt nicht zur Anzeige.",
+        "apps.preview_draft_intro": (
+            "Neuer Entwurf mit Hinweisen. Dein bisheriger Text bleibt, bis du jeden Hinweis "
+            "bestätigst und den neuen Text übernimmst."
+        ),
+        "apps.preview_draft_adopt": "Neuen Text übernehmen",
+        "apps.preview_draft_keep": "Bisherigen Text behalten",
+        "apps.preview_draft_view": "Neuer Entwurf",
+        "apps.preview_draft_rejected": (
+            "Der neue Entwurf wurde nicht übernommen: Er enthält eine Angabe, die dein Profil "
+            "nicht belegt („{sentence}“). Dein bisheriger Text bleibt unverändert."
+        ),
+        "apps.preview_claim_blocked_generic": (
+            "Im Brief steht eine Angabe, die dein Profil nicht belegt. "
+            "Bestätige sie im Profil."
+        ),
+        "apps.preview_section_cv": "Lebenslauf",
+        "apps.preview_section_cover": "Anschreiben",
+        "apps.preview_section_form": "Formulardaten",
+        "apps.preview_section_answers": "Antworten / Screening",
+        "apps.preview_cv_missing": "Kein Lebenslauf hinterlegt — bitte im Profil ergänzen.",
+        "apps.preview_cv_role_note": "Aktives Dokument: {role}",
+        "apps.preview_cover_missing": "Noch kein Anschreiben vorhanden.",
+        "apps.preview_form_empty": "Keine Formulardaten erkannt.",
+        "apps.preview_unknown_fields": "Unbekannte Felder",
+        "apps.preview_tech_details": "Technische Details",
+        "apps.preview_tech_warnings": "Technische Hinweise",
+        "apps.preview_tech_url": "URL",
+        "apps.preview_tech_ats": "ATS",
+        "apps.preview_tech_mode": "Modus",
+        "apps.preview_tech_dry_run": "Dry-Run",
+        "apps.preview_tech_submit_allowed": "submit_allowed",
+        "apps.preview_tech_will_submit": "will_submit",
+        "apps.preview_tech_gate": "quality_gate",
+        "apps.preview_tech_match": "Match",
+        "apps.preview_tech_ats_note": "ATS-Hinweis",
+        "apps.preview_tech_document": "Dokument",
+        "apps.preview_hint_no_send": "Es wird nichts versendet — nur der Entwurf wird geprüft.",
+        "apps.preview_hint_no_auto_send": "Automatisches Absenden ist ausgeschaltet.",
+        "apps.preview_hint_manual_finish": "Automatisierung nicht verfügbar — bitte manuell abschließen.",
+        "apps.preview_hint_partial_fill": "Felder werden vorausgefüllt; Abschluss bitte prüfen.",
+        "apps.gate_ready": "Bereit zur Vorbereitung",
+        "apps.gate_warning": "Bitte prüfen",
+        "apps.gate_blocked": "CV/Profil blockiert",
+        "jobs.min_match": "Min. Match",
+        "jobs.max_km": "Max. km",
+        "jobs.city": "Stadt",
+        "jobs.title": "Titel",
+        "jobs.company": "Firma",
+        "jobs.source": "Quelle",
+        "jobs.status": "Status",
+        "jobs.all": "Alle",
+        "apps.date": "Datum",
+        "apps.ats": "ATS",
+        "apps.match": "Match",
+        "apps.cv": "CV",
+        "apps.cover": "Anschreiben",
+        "apps.error": "Fehler / Grund",
+        "profile.career": "Berufswünsche",
+        "profile.desired": "Gewünschte Berufe (Suchwunsch)",
+        "profile.alternative": "Alternative Berufe (veraltet — bitte unter Gewünschte Berufe führen)",
+        "profile.excluded": "Ausschlüsse",
+        "profile.industries": "Branchen",
+        "profile.industries_ex": "Branchen ausschließen",
+        "profile.subtitle": "Wer bin ich? Qualifikationen, Erfahrung und Bewerbungsdaten — nicht der aktuelle Suchwunsch.",
+        "profile.import_from_cv": "Aus CV importieren",
+        "profile.edit": "Bearbeiten",
+        "profile.add": "Hinzufügen",
+        "profile.expand": "Aufklappen",
+        "profile.collapse": "Zuklappen",
+        "profile.replace_cv": "Ersetzen",
+        "profile.card_personal": "Persönliche Daten",
+        "profile.card_career": "Berufsziel",
+        "profile.card_application": "Bewerbungsdaten",
+        "profile.card_docs": "Dokumente & Links",
+        "profile.card_skills": "Skills & Software",
+        "profile.card_skills_certs": "Skills, Software & Weiterbildungen",
+        "profile.desired_short": "Gewünschte Berufe",
+        "profile.present": "heute",
+        "profile.empty_section": "Noch keine Einträge.",
+        "profile.empty_tags": "Keine Angaben",
+        "profile.more_tags": "+ {n} weitere",
+        "profile.show_more_entry": "+ 1 weiteren Eintrag anzeigen",
+        "profile.show_more_entries": "+ {n} weitere Einträge anzeigen",
+        "profile.cv_meta": "Lebenslauf für Bewerbungen",
+        "profile.no_linkedin": "Kein LinkedIn-Link hinterlegt",
+        "profile.location": "Wohnort & Erreichbarkeit",
+        "profile.experience": "Berufserfahrung",
+        "profile.education": "Ausbildung",
+        "profile.qualifications": "Qualifikationen",
+        "profile.skills": "Skills",
+        "profile.software": "Software",
+        "profile.certificates": "Zertifikate / Weiterbildungen",
+        "profile.license": "Führerschein",
+        "profile.licence_recovered": "Aus einem älteren Import wiederhergestellt. Bitte prüfen und speichern.",
+        "profile.licence_uncertain": "Nicht sicher erkannt: {classes}. Bitte ergänze die genaue Klasse.",
+        "profile.licence_unknown_kept": (
+            "Nicht sicher erkannt: {entries}. Diese Einträge bleiben unverändert gespeichert."
+        ),
+        "profile.licence_review": "Prüfen",
+        "profile.no_changes": "Keine Änderungen.",
+        "profile.languages": "Sprachen",
+        "profile.location_work": "Standort & Arbeitsmodell",
+        "profile.home": "Heimatadresse",
+        "profile.postal": "PLZ",
+        "profile.commute": "Radius (Fahrstrecke)",
+        "profile.commute_airline": "Radius (Fahrstrecke; Luftlinie nur Vorfilter)",
+        "profile.geo_dataset": "Geodaten",
+        "profile.geo_update": "Geodaten aktualisieren",
+        "profile.geo_status_ok": "Installiert: {version} ({source})",
+        "profile.geo_status_bad": "Geodaten nicht bereit: {message}",
+        "profile.allow_remote": "Voll remote (DE) erlauben",
+        "profile.allow_hybrid": "Hybrid erlauben",
+        "profile.country": "Land",
+        "profile.work_model": "Arbeitsmodell",
+        "profile.min_salary": "Mindestgehalt (EUR brutto / Jahr)",
+        "profile.pref_companies": "Bevorzugte Firmen",
+        "profile.ex_companies": "Ausgeschlossene Firmen",
+        "profile.app_data": "Bewerbungsdaten",
+        "profile.sync_home_address": "Diese Adresse auch als Standort für die Jobsuche verwenden.",
+        "profile.custom_search_home": "Eigener Suchort gespeichert. Die Kontaktadresse wird nicht mehr übernommen.",
+        "profile.cv": "Lebenslauf",
+        "profile.no_cv": "Kein CV ausgewählt",
+        "profile.saved": "Gespeichert.",
+        "search.subtitle": "Was suche ich jetzt? Expliziter Suchwunsch — unabhängig vom Profilnachweis.",
+        "search.roles_skills": "Zielberufe, Skills & Keywords",
+        "search.target_roles": "Zielberufe",
+        "search.mandatory_skills": "Pflicht-Skills",
+        "search.excluded_roles": "Ausgeschlossene Berufe",
+        "search.excluded_skills": "Ausgeschlossene Skills",
+        "search.excluded_keywords": "Ausschluss-Keywords",
+        "search.required_keywords": "Keywords (Pflicht)",
+        "search.preferred_skills": "Wunsch-Kenntnisse (Bonus)",
+        "search.preferred_skills_tip": "Stellen mit diesen Kenntnissen rücken nach oben; ohne sie fallen sie nicht heraus.",
+        "search.preferred_industries": "Wunsch-Branchen",
+        "search.excluded_industries": "Branchen ausschließen",
+        "search.preferred_companies": "Wunsch-Firmen",
+        "search.excluded_companies": "Firmen ausschließen",
+        "search.published_within": "Anzeigen der letzten",
+        "search.days_suffix": " Tage",
+        "search.conditions": "Ort, Modell & Konditionen",
+        "search.remote_mode": "Remote / Hybrid / Vor Ort",
+        "search.remote_unset": "Nicht festgelegt",
+        "search.radius": "Radius (Luftlinie, km)",
+        "search.countries": "Länder (DE / AT / CH)",
+        "search.working_time": "Arbeitszeit",
+        "search.weekly_hours": "Stunden pro Woche",
+        "search.hours_to": "bis",
+        "search.hours_any": "egal",
+        "search.weekly_hours_tip": "Steht die Wochenarbeitszeit in der Anzeige, zeigt Karrierekrake, ob sie zu deiner Spanne passt.",
+        "search.work_days": "Arbeitstage",
+        "search.work_days_tip": "Nichts angehakt = egal. Ohne Samstag/Sonntag weist Karrierekrake auf Anzeigen mit Wochenendarbeit hin.",
+        "search.day_mo": "Mo", "search.day_di": "Di", "search.day_mi": "Mi", "search.day_do": "Do",
+        "search.day_fr": "Fr", "search.day_sa": "Sa", "search.day_so": "So",
+        "search.employment_types": "Beschäftigungsart",
+        "search.emp_permanent": "Unbefristet",
+        "search.emp_temporary": "Befristet",
+        "search.emp_contract": "Werkvertrag / Freelance",
+        "search.salary_min": "Mindestgehalt (EUR brutto / Jahr)",
+        "search.strictness": "Suchstrenge",
+        "search.strictness_label": "Modus",
+        "search.strictness_unset": "Noch nicht gewählt",
+        "search.strictness_strict": "STRICT — nur explizite Zielberufe / Pflicht-Skills",
+        "search.strictness_balanced": "BALANCED — Intent führt, begrenzte Erweiterung",
+        "search.strictness_explore": "EXPLORE — breitere Entdeckung (Ausschlüsse bleiben hart)",
+        "search.strictness_hint": "STRICT wird nie still erweitert. Ohne Auswahl gilt für gesetzte Zielberufe die sichere STRICT-Lesart in der Filterung.",
+        "search.needs_review": "Bitte prüfen (Migration / Konflikte):",
+        "search.saved": "Suchwunsch gespeichert.",
+        "profile.cv_saved": "Lebenslauf gespeichert.\nDu kannst jetzt „Profil aus Lebenslauf einlesen“ nutzen.",
+        "profile.cv_updated": "Profil aktualisiert.",
+        "profile.reset": "Profil zurücksetzen",
+        "profile.reset_title": "Profil zurücksetzen",
+        "profile.reset_cv_only": "Nur CV-Daten löschen",
+        "profile.reset_all": "Profil + Dokumente löschen",
+        "profile.reset_wipe_all_local": "Alle lokalen Karrierekrake-Daten löschen",
+        "profile.reset_choose_scope": (
+            "Bitte Umfang wählen:\n"
+            "• Nur CV-Daten — importierte Qualifikationen/Felder; manuelle Einträge bleiben.\n"
+            "• Profil + Dokumente — Bewerberdaten, Qualifikationen und gespeicherte CVs. "
+            "Suchwünsche bleiben erhalten.\n"
+            "• Alle lokalen Daten — Config, Job-Datenbank, Logs, CVs und Cache."
+        ),
+        "profile.reset_confirm_cv": (
+            "Alle aus dem Lebenslauf importierten Daten und CV-Dateien löschen?\n"
+            "Manuell eingegebene Einträge bleiben erhalten.\n"
+            "Suchwünsche werden nicht geändert."
+        ),
+        "profile.reset_confirm_all": (
+            "Bewerbungsprofil und gespeicherte Dokumente (CVs) vollständig löschen?\n"
+            "Entfernt: Name, Kontakt, Qualifikationen, Antworten, CV-Dateien.\n"
+            "Bleibt erhalten: Suchwünsche (Titel, Ort, Filter), Einstellungen, Job-Historie.\n"
+            "Diese Aktion kann nicht rückgängig gemacht werden."
+        ),
+        "profile.reset_confirm_wipe_all": (
+            "ALLE lokalen Karrierekrake-Daten löschen?\n"
+            "Entfernt: Profil, Suchwünsche, Einstellungen, Job-Datenbank, Logs, CVs, Cache.\n"
+            "Eine kurze Config-Sicherung wird nach Möglichkeit angelegt.\n"
+            "Diese Aktion kann nicht rückgängig gemacht werden."
+        ),
+        "profile.reset_done": "Profil zurückgesetzt.",
+        "profile.reset_wipe_done": "Alle lokalen Karrierekrake-Daten wurden gelöscht.",
+        "profile.reset_wipe_failed": (
+            "Löschung konnte nicht verifiziert werden. Es wurden keine "
+            "„gelöscht“-Meldung bestätigt — bitte Logs prüfen und erneut versuchen."
+        ),
+        "privacy.tab": "Datenschutz",
+        "privacy.title": "Daten & Löschung",
+        "privacy.intro": (
+            "Karrierekrake speichert Profil, Lebenslauf, Jobs und Bewerbungen lokal "
+            "auf diesem Gerät. Es gibt kein Karrierekrake-Konto und keine Telemetrie. "
+            "Daten verlassen den Rechner nur durch Aktionen, die du startest – etwa "
+            "eine Jobsuche bei Jobportalen, eine Bewerbung oder das Verbinden von "
+            "E-Mail und Kalender. Hier kannst du deine Daten jederzeit exportieren "
+            "oder löschen."
+        ),
+        "privacy.export": "Meine Daten exportieren…",
+        "privacy.export_confirm": (
+            "Der Export enthält personenbezogene Daten (kein OAuth-Token). Fortfahren?"
+        ),
+        "privacy.export_confirm_btn": "Exportieren",
+        "privacy.connect_confirm_btn": "Verbinden",
+        "privacy.delete_confirm_btn": "Löschen",
+        "privacy.delete_all_confirm_btn": "Alles löschen",
+        "privacy.delete_mail_confirm": (
+            "Lokalen Mail-Cache löschen? Dein Postfach beim Anbieter bleibt unverändert."
+        ),
+        "privacy.delete_calendar_confirm": (
+            "Lokalen Kalender-Cache löschen? Dein Kalender beim Anbieter bleibt unverändert."
+        ),
+        "privacy.delete_logs_confirm": (
+            "Alle lokalen Protokolle löschen? Sie werden nur für die Fehlersuche benötigt."
+        ),
+        "integrations.disconnect_confirm": (
+            "Gewählte Verbindung trennen? Gespeicherte Zugangsdaten werden entfernt; "
+            "du kannst dich später erneut verbinden."
+        ),
+        "integrations.disconnect_confirm_btn": "Trennen",
+        "dialog.confirm": "Bestätigen",
+        "privacy.export_done": "Export gespeichert:",
+        "privacy.export_failed": "Export fehlgeschlagen oder abgebrochen.",
+        "privacy.disconnect_google": "Google-Verbindung trennen",
+        "integrations.mail.label": "E-Mail",
+        "integrations.mail.none": "Keine",
+        "integrations.mail.google": "Google",
+        "integrations.mail.microsoft": "Microsoft",
+        "integrations.mail.other": "Anderer Anbieter",
+        "integrations.calendar.label": "Kalender",
+        "integrations.calendar.google": "Google",
+        "integrations.calendar.microsoft": "Microsoft",
+        "integrations.calendar.other": "Anderer Anbieter",
+        "integrations.calendar.none_explicit": "Kein Kalender",
+        "integrations.calendar.mode_label": "Google-Kalender-Funktion",
+        "integrations.calendar.mode_a": "Nur Verfügbarkeit prüfen",
+        "integrations.calendar.mode_b": "Verfügbarkeit prüfen und bestätigte Termine eintragen",
+        "integrations.calendar.mode_a_rights": (
+            "Karrierekrake fragt Google nur nach freien/belegten Zeiten. "
+            "Termintitel und Beschreibungen werden nicht gelesen. "
+            "Daten bleiben auf diesem PC; es gibt keinen Karrierekrake-Server."
+        ),
+        "integrations.calendar.mode_b_rights": (
+            "Zusätzlich zu freien/belegten Zeiten darf Karrierekrake nach deiner "
+            "Zustimmung Termine in deinen eigenen Kalender eintragen. "
+            "Kein automatisches Annehmen von Einladungen. "
+            "Daten bleiben auf diesem PC; es gibt keinen Karrierekrake-Server."
+        ),
+        "integrations.calendar.mode_a_confirm": (
+            "Google-Konto verbinden (nur Verfügbarkeit)?\n\n"
+            "Es werden nur freie und belegte Zeiten abgefragt. "
+            "Termindetails bleiben privat. Verbindung läuft direkt zu Google."
+        ),
+        "integrations.calendar.mode_b_confirm": (
+            "Google-Konto verbinden (Verfügbarkeit + Termine eintragen)?\n\n"
+            "Karrierekrake darf freie/belegte Zeiten lesen und nach deiner "
+            "Freigabe Termine in deinen eigenen Kalender schreiben. "
+            "Verbindung läuft direkt zu Google — kein Karrierekrake-Server."
+        ),
+        "integrations.no_fallback_hint": (
+            "Gmail und Google Kalender können unabhängig verbunden werden. "
+            "Bei Verbindungsproblemen bitte das betroffene Google-Konto neu verbinden."
+        ),
+        "integrations.status.unknown": "Status: unbekannt",
+        "integrations.connect_caldav": 'CalDAV-Kalender verbinden',
+        "integrations.connect_imap": 'IMAP-Postfach verbinden',
+        "integrations.credentials_hint": 'Zugangsdaten werden im Passwortspeicher des Betriebssystems gespeichert. Falls nötig, nutze ein App-Passwort deines Anbieters.',
+        "integrations.server": 'Server',
+        "integrations.username": 'Benutzername',
+        "integrations.password": 'Passwort / App-Passwort',
+        "integrations.select_calendar": 'Kalender auswählen',
+        "integrations.status.checking": "Verbindung wird geprüft…",
+        "integrations.status.none": "Status: nicht gewählt",
+        "integrations.status.connected": "Status: verbunden",
+        "integrations.status.not_connected": "Status: nicht verbunden (API-Probe fehlt oder fehlgeschlagen)",
+        "integrations.status.probe_required": "Status: Token vorhanden — API-Probe ausstehend",
+        "integrations.connect_microsoft_mail": "Microsoft-Mail verbinden",
+        "integrations.connect_microsoft_calendar": "Microsoft-Kalender verbinden",
+        "integrations.disconnect_selected": "Gewählte Verbindung trennen",
+        "integrations.wrong_mail_provider": "Bitte zuerst den passenden E-Mail-Anbieter wählen.",
+        "integrations.wrong_calendar_provider": "Bitte zuerst den passenden Kalender-Anbieter wählen.",
+        "integrations.microsoft_client_missing": (
+            "Microsoft-Client-ID fehlt. Setze microsoft_client_id in den Einstellungen "
+            "oder die Umgebungsvariable KARRIEREKRAKE_MS_CLIENT_ID "
+            "(Azure-App-Registrierung, öffentlicher Client / PKCE)."
+        ),
+        "integrations.microsoft_browser_opened": "Systembrowser geöffnet — Anmeldung dort abschließen.",
+        "integrations.probe_failed": "Anmeldung speicherte ein Token, aber die API-Probe schlug fehl. Nicht als verbunden markiert.",
+        "privacy.connect_gmail": "Gmail verbinden (nur Lesen)",
+        "privacy.connect_gmail_confirm": (
+            "Karrierekrake fordert nur gmail.readonly an, um Bewerbungsmails "
+            "zuzuordnen. Kein Senden/Ändern. Systembrowser wird geöffnet."
+        ),
+        "privacy.connect_calendar": "Google-Kalender verbinden",
+        "privacy.connect_calendar_confirm": (
+            "Google-Kalender verbinden? Die Rechte hängen vom gewählten Modus "
+            "(nur Verfügbarkeit bzw. Verfügbarkeit + Termine) ab."
+        ),
+        "privacy.connect_ok": "Google-Verbindung hergestellt.",
+        "privacy.connect_failed": (
+            "Google-Verbindung fehlgeschlagen. Prüfe Clientdatei, Netzwerk und "
+            "versuche es erneut — oder brich bewusst ab und überspringe."
+        ),
+        "privacy.connect_cancelled": (
+            "Anmeldung abgebrochen. Es wurde nichts verbunden — "
+            "du kannst es jederzeit erneut versuchen."
+        ),
+        "privacy.connect_missing_client": (
+            "Google-Clientdatei fehlt. Lege die Desktop-OAuth-Datei unter "
+            "private/gmail_credentials.json ab (Google Cloud Console → "
+            "OAuth-Client Typ Desktop). Dann erneut verbinden."
+        ),
+        "privacy.connect_libs_missing": (
+            "Google-Bibliotheken fehlen in dieser Installation."
+        ),
+        "privacy.connect_production_not_ready": (
+            "Google-OAuth ist für Produktion noch nicht freigegeben "
+            "(Datenschutz-/Homepage-URL oder Verifizierung). "
+            "Einrichtungsschritt: OAuth-Consent in der Google Cloud Console vervollständigen."
+        ),
+        "privacy.connect_client_config": (
+            "Google-Clientkonfiguration ungültig (Redirect/Port). "
+            "Prüfe den Desktop-OAuth-Client und GMAIL_OAUTH_PORT."
+        ),
+        "privacy.connect_keyring": (
+            "Tokens konnten nicht sicher gespeichert werden (System-Schlüsselbund). "
+            "Schlüsselbund freigeben und erneut verbinden."
+        ),
+        "privacy.connect_revoked": (
+            "Die gespeicherte Google-Anmeldung wurde widerrufen oder ist abgelaufen. "
+            "Bitte erneut verbinden."
+        ),
+        "privacy.connect_probe_failed": (
+            "Anmeldung möglich, aber die Google-API antwortete nicht. "
+            "Netzwerk prüfen und erneut versuchen."
+        ),
+        "privacy.connect_partial": (
+            "Teilweise Zustimmung: nicht alle angeforderten Rechte wurden gewährt. "
+            "Betroffene Funktionen bleiben deaktiviert."
+        ),
+        "privacy.connect_ms_cancelled": (
+            "Microsoft-Anmeldung abgebrochen. Es wurde nichts verbunden."
+        ),
+        "privacy.connect_ms_failed": "Microsoft-Verbindung fehlgeschlagen ({detail}).",
+        "wizard.step_integrations_title": "3 · Mail & Kalender (optional)",
+        "wizard.step_integrations_body": (
+            "Optional: Postfach und Kalender verbinden. Du kannst diesen Schritt "
+            "überspringen und später unter Einstellungen → Integrationen nachholen."
+        ),
+        "wizard.integrations_skip": "Ohne Verbindung weiter",
+        "wizard.integrations_google": "Google",
+        "wizard.integrations_gmail": "Gmail (nur Lesen)",
+        "wizard.integrations_gcal": "Google-Kalender",
+        "wizard.integrations_both": "Gmail und Kalender",
+        "wizard.integrations_microsoft_mail": "Microsoft-Mail",
+        "wizard.integrations_microsoft_cal": "Microsoft-Kalender",
+        "wizard.integrations_connect": "Gewähltes verbinden…",
+        "wizard.integrations_status_idle": "Noch nicht verbunden — überspringen ist in Ordnung.",
+        "wizard.integrations_status_ok": "Verbunden.",
+        "wizard.integrations_status_failed": (
+            "Verbindung nicht hergestellt (kein erfolgreicher Login gespeichert)."
+        ),
+        "wizard.reopen": "Einrichtungsassistent erneut öffnen",
+        "settings.source_company_sites_hint": (
+            "Unternehmensseiten: Websuche nach Karriere- und Stellenseiten plus "
+            "öffentliche Greenhouse-/Lever-Boards. Nur ausgelesene Stellenanzeigen; "
+            "nicht jede Website kann automatisch gelesen werden."
+        ),
+        "settings.source_linkedin_hint": (
+            "LinkedIn: begrenzte Gäste-Suche. Timeouts werden angezeigt — "
+            "keine Zugangsumgehung."
+        ),
+        "privacy.delete_mail": "Mail-Cache löschen",
+        "privacy.delete_calendar": "Kalender-Cache löschen",
+        "privacy.delete_logs": "Logs löschen",
+        "privacy.delete_all": "ALLE lokalen Daten löschen",
+        "privacy.action_ok": "Erledigt und verifiziert.",
+        "privacy.action_failed": "Aktion fehlgeschlagen oder nicht verifiziert.",
+        "cv_import.title": "Profil aus Lebenslauf",
+        "cv_import.intro": "Erkannte Angaben prüfen. Empfohlen: Profil aus CV ersetzen.",
+        "cv_import.mode": "Import-Modus",
+        "cv_import.mode_replace": "Profil aus CV ersetzen (empfohlen)",
+        "cv_import.mode_merge": "Mit bestehendem Profil zusammenführen",
+        "cv_import.mode_hint": "Ersetzen entfernt alte CV-Daten vor dem Übernehmen. Zusammenführen ergänzt ohne Duplikate.",
+        "cv_import.detected": "Erkanntes Profil",
+        "cv_import.personal": "Persönliche Daten",
+        "cv_import.will_replace": "Wird ersetzt / aktualisiert",
+        "cv_import.will_keep": "Bleibt erhalten",
+        "cv_import.old_cv_quals": "Alte CV-Qualifikationen",
+        "cv_import.keep_manual_quals": "Manuell eingetragene Qualifikationen",
+        "cv_import.conflicts": "Konflikte (manuell vs. CV)",
+        "cv_import.use_cv": "CV-Wert verwenden",
+        "cv_import.keep_current": "Aktuellen Wert behalten",
+        "cv_import.current": "Aktuell",
+        "cv_import.apply": "Übernehmen",
+        "cv_import.file": "Datei",
+        "cv_import.none": "nichts erkannt",
+        "cv_import.not_detected": "Im Dokument nicht gefunden",
+        "cv_import.confidence": "Erkennungsstatus",
+        "cv_import.review_items": "Zur Prüfung (unklar / umklassifiziert)",
+        "cv_import.read_error": "Konnte nicht gelesen werden:",
+        "cv_import.parsing": "Lebenslauf wird gelesen … Die Oberfläche bleibt bedienbar.",
+        "cv_import.ready": "Lebenslauf gelesen. Bitte prüfen und übernehmen.",
+        "cv_import.retry": "Erneut versuchen",
+        "cv_import.oom": (
+            "Zu wenig Arbeitsspeicher. Die Eingaben bleiben erhalten. "
+            "Es gibt keinen automatischen Neustart — bitte manuell erneut versuchen."
+        ),
+        "cv_import.timeout": (
+            "Zeitüberschreitung beim Lesen. Die Eingaben bleiben erhalten. "
+            "Bitte manuell erneut versuchen."
+        ),
+        "cv_import.cancelled": "Einlesen abgebrochen. Es wurde nichts übernommen.",
+        "cv_import.cancel_btn": "Abbrechen",
+        "cv_import.close": "Schließen",
+        "cv_import.progress": "Lebenslauf wird eingelesen…",
+        "cv_import.read_again": "Erneut einlesen",
+        "cv_import.choose_other": "Andere Datei wählen",
+        "cv_import.empty_title": "Nichts erkannt",
+        "cv_import.empty_body": (
+            "In dieser Datei wurden keine Profildaten erkannt. Es wurde nichts übernommen. "
+            "Wähle eine andere Datei oder schließe den Dialog."
+        ),
+        "cv_import.error_memory_exceeded": (
+            "Für diese Datei braucht das KI-Modell mehr Arbeitsspeicher, als Karrierekrake "
+            "dafür nutzen darf. Es wurde nichts übernommen. "
+            "Wähle ein kleineres Modell oder trage dein Profil selbst ein."
+        ),
+        "cv_import.error_memory_exceeded_no_smaller": (
+            "Für diese Datei braucht das KI-Modell mehr Arbeitsspeicher, als Karrierekrake "
+            "dafür nutzen darf. Es wurde nichts übernommen. Trage dein Profil selbst ein."
+        ),
+        "cv_import.error_memory_busy": (
+            "Andere Programme belegen gerade viel Arbeitsspeicher. Es wurde nichts übernommen. "
+            "Schließe einige Programme und versuche es dann erneut."
+        ),
+        "cv_import.choose_smaller_model": "Kleineres Modell wählen",
+        "cv_import.enter_profile_manually": "Profil selbst eintragen",
+        "cv_import.error_oom": (
+            "Nicht genug Arbeitsspeicher, um diese Datei einzulesen. Es wurde nichts übernommen. "
+            "Karrierekrake startet den Vorgang nicht automatisch neu."
+        ),
+        "cv_import.error_timeout": (
+            "Das Einlesen hat zu lange gedauert und wurde abgebrochen. Es wurde nichts übernommen. "
+            "Es wird nicht automatisch erneut versucht."
+        ),
+        "cv_import.error_generic": (
+            "Die Datei konnte nicht gelesen werden. Pfad und Eingaben bleiben erhalten."
+        ),
+        "cv_import.error_model_missing": (
+            "Das lokale Lebenslauf-Modell fehlt in dieser Installation. "
+            "Bitte Karrierekrake neu installieren. Es wurde nichts übernommen."
+        ),
+        "cv_import.error_llama_missing": (
+            "Die lokale Auswertung fehlt in dieser Installation. "
+            "Bitte Karrierekrake neu installieren. Es wurde nichts übernommen."
+        ),
+        "cv_import.error_llm_unavailable": (
+            "Die lokale Auswertung ist gerade nicht verfügbar. "
+            "Bitte erneut versuchen oder Karrierekrake neu starten."
+        ),
+        "cv_import.error_docpick_missing": (
+            "Die Lebenslauf-Auswertung fehlt in dieser Installation. "
+            "Bitte Karrierekrake neu installieren."
+        ),
+        "cv_import.error_empty_file": (
+            "Die Datei ist leer oder enthält keinen lesbaren Text. "
+            "Bitte eine andere Datei wählen."
+        ),
+        "cv_import.error_unreadable": (
+            "Die Datei konnte nicht als PDF oder Word-Dokument gelesen werden. "
+            "Bitte eine andere Datei wählen."
+        ),
+        "cv_import.error_extract_failed": (
+            "Der Lebenslauf konnte nicht zuverlässig ausgelesen werden. "
+            "Bitte Felder manuell nachtragen. Es wurde nichts übernommen."
+        ),
+        "cv_import.error_unreliable": (
+            "Ohne Namen und Kontakt ist das Ergebnis nicht verlässlich. "
+            "Bitte Profil manuell ausfüllen. Es wurde nichts übernommen."
+        ),
+        "cv_import.error_incomplete": (
+            "Sprachen, Kenntnisse, Software oder Weiterbildungen wurden nicht vollständig erkannt. "
+            "Es wurde nichts übernommen. Bitte erneut versuchen oder manuell eintragen."
+        ),
+        "cv_import.empty": (
+            "Im Dokument wurde nichts erkannt. Trag das Profil manuell ein "
+            "oder lies die Datei erneut ein."
+        ),
+        "cv_import.manual_profile": "Profil manuell eintragen",
+        "cv_import.pipeline": "Lebenslauf-Import",
+        "cv_import.pipeline_det": "Auf diesem Gerät ausgewertet – der Lebenslauf wurde nicht ins Internet gesendet.",
+        "cv_import.manual_hint": (
+            "Bitte Felder manuell ergänzen. Es gibt keinen automatischen Ersatz-Import."
+        ),
+        "cv_import.needs_review": "Bitte Angaben prüfen und fehlende Felder manuell ergänzen.",
+        "cv_import.extracting": "Lebenslauf wird ausgelesen…",
+        "cv_import.extracting_hint": "Die Oberfläche bleibt bedienbar. Das Auslesen kann 1–2 Minuten dauern. Abbrechen schließt den Dialog; der Abbruch greift zwischen den Arbeitsschritten.",
+        "cv_import.extract_done": "Auslesen abgeschlossen — bitte prüfen und übernehmen.",
+        "cv_import.progress_preflight": "Lokale Auswertung wird geprüft…",
+        "cv_import.progress_pdf": "PDF wird gelesen…",
+        "cv_import.progress_model": "Lebenslauf wird ausgewertet…",
+        "btn.reset_profile": "Profil zurücksetzen",
+        "settings.general": "Allgemein",
+        "settings.appearance": "Darstellung",
+        "settings.search": "Suche",
+        "settings.applications": "Bewerbungen",
+        "settings.lifecycle": "Nach der Bewerbung",
+        "settings.preferred_contact": "Bevorzugter Kontakt",
+        "settings.phone_available": "Telefonische Erreichbarkeit anbieten",
+        "settings.telephone_availability": "Telefon-Zeitfenster",
+        "settings.working_hours": "Arbeitszeiten (Kalender)",
+        "settings.follow_up_days": "Nachfassen nach (Tagen)",
+        "settings.ghosted_days": "Ghosting-Hinweis nach (Tagen)",
+        "settings.archive_after_days": "Ohne Aktivität archivieren nach (Tagen)",
+        "settings.archive_never": "nie",
+        "templates.open": "Anschreiben-Vorlagen …",
+        "templates.title": "Anschreiben-Vorlagen",
+        "templates.intro": "Eine Vorlage bestimmt Aufbau und Ton deines Anschreibens. Firma, Stelle und deine geprüften Kenntnisse setzt Karrierekrake über Platzhalter ein; die Faktenprüfung läuft wie immer.",
+        "templates.standard": "Standard (mitgeliefert)",
+        "templates.delete": "Löschen",
+        "templates.placeholders": "Platzhalter:",
+        "templates.name": "Name der Vorlage",
+        "templates.save": "Als Vorlage speichern",
+        "templates.use": "Diese Vorlage verwenden",
+        "templates.from_letter": "Aus eigenem Anschreiben",
+        "templates.generate": "Vorlage generieren",
+        "templates.generate_prompt": "Welcher Stil? Fakten setzt Karrierekrake weiterhin geprüft ein.",
+        "templates.from_letter_hint": "Füge ein Anschreiben ein, das du selbst geschrieben hast. Firma, Stelle, dein Name und die Anrede werden zu Platzhaltern. Prüfe danach, ob Sätze nur zu dieser einen Firma passen.",
+        "templates.company_in_letter": "Firma im Anschreiben",
+        "templates.position_in_letter": "Stelle im Anschreiben",
+        "templates.name_in_letter": "Dein Name im Anschreiben",
+        "templates.default_name": "Mein Anschreiben",
+        "templates.company_not_found": "Der Firmenname kam im Text nicht vor. Setze {company} selbst an die passende Stelle.",
+        "templates.error_name_missing": "Bitte gib der Vorlage einen Namen.",
+        "templates.error_text_missing": "Die Vorlage ist leer.",
+        "templates.error_text_too_long": "Die Vorlage ist zu lang (höchstens 20.000 Zeichen).",
+        "settings.transfer_export": "Einstellungen und Profil exportieren …",
+        "settings.transfer_import": "Einstellungen und Profil importieren …",
+        "settings.transfer_import_go": "Importieren",
+        "settings.transfer_confirm": "Profil, Skills, Suchwünsche und Einstellungen werden durch die Datei ersetzt. Lebenslauf-Dateien, Bewerbungen und Konten bleiben unverändert.",
+        "settings.transfer_tip": "Für einen neuen Rechner: überträgt Einstellungen, Profil, Skills, Stichwörter, Suchwünsche und Bewerberdaten. Die Datei enthält persönliche Daten – sicher aufbewahren. Nicht enthalten: Lebenslauf-Dateien, Bewerbungen, Konten, Schlüssel. Automatisches Absenden und Mailversand musst du auf dem neuen Rechner selbst einschalten.",
+        "settings.transfer_exported": "Einstellungen gespeichert:\n{path}",
+        "settings.transfer_imported": "Profil und Einstellungen übernommen ({applied} Einstellungen geändert, {skipped} bewusst ausgelassen, z. B. automatisches Absenden).",
+        "settings.transfer_invalid": "Diese Datei ist keine Karrierekrake-Einstellungsdatei oder stammt aus einer neueren Version.",
+        "settings.archive_after_days_tip": "Bewerbungen ohne Antwort oder neue Schritte wandern nach dieser Zeit ins Archiv. Status und Verlauf bleiben erhalten, der Export enthält sie weiterhin. 0 = nie.",
+        "settings.followup_enabled": "Nachfassen / Ghosting-Hinweise aktiv",
+        "settings.followup_reminders_enabled": "Persistente Nachfass-Erinnerungen (kein Auto-Send)",
+        "settings.email_draft_only": "Arbeitgeber-Mails nur als Entwurf (Standard)",
+        "settings.allow_employer_email_send": "Echten Versand freigeben (nur mit Freigabe pro Mail)",
+        "settings.guenther": "Günther die Krake",
+        "settings.guenther_enabled": "Günther (immer aktiv, nur lokal)",
+        "settings.guenther_model": "Schreibhilfe",
+        "settings.guenther_model.sole": "Lokale Schreibhilfe (mitgeliefert)",
+        "settings.guenther_model.phi_only": "Lokale Schreibhilfe (mitgeliefert)",
+        "settings.guenther_model.auto": "Automatisch (lokale Schreibhilfe)",
+        "settings.guenther_model.primary": "Empfohlen — lokale Schreibhilfe",
+        "settings.guenther_model.light": "Entfernt — kein zweites Modell",
+        "settings.guenther_model.legacy4b": "Entfernt — kein zweites Modell",
+        "settings.guenther_model.standard": "Entfernt — kein zweites Modell",
+        "settings.guenther_model.alt": "Empfohlen — lokale Schreibhilfe",
+        "settings.guenther_hint": (
+            "Günther ist immer aktiv und nutzt die mitgelieferte lokale Schreibhilfe "
+            "(Anschreiben, E-Mails, Motivationstexte). "
+            "Fehlt die Schreibhilfe: Funktion nicht verfügbar "
+            "(kein stiller Ersatz). Günther schlägt vor — Karrierekrake entscheidet."
+        ),
+        "settings.guenther_writer_status_on": "Schreibhilfe: aktiv (lokal, mitgeliefert)",
+        "settings.guenther_writer_status_off": "Schreibhilfe: aktiv (lokal, mitgeliefert)",
+        "settings.guenther_writer_unavailable": (
+            "Schreibhilfe: fehlt in dieser Installation — bitte neu installieren."
+        ),
+        "settings.cv_import_path_title": "Lebenslauf-Import",
+        "settings.cv_import_path_body": (
+            "Lebensläufe werden lokal und offline ausgewertet. "
+            "Modell und Laufzeit sind in der Installation enthalten."
+        ),
+        "settings.cv_import_status_ready": "Lebenslauf-Import: bereit (lokal, offline)",
+        "settings.cv_import_status_unavailable": (
+            "Lebenslauf-Import: lokale Auswertung nicht verfügbar — "
+            "bitte Karrierekrake neu installieren."
+        ),
+        "settings.local_llm_cv_parsing": "Lokale Lebenslauf-Auswertung (Diagnose-Schalter)",
+        "settings.local_llm_cv_kill": (
+            "wird die lokale Lebenslauf-Auswertung auf dieser Hardware gestrichen; "
+            "der manuelle Profilimport bleibt möglich."
+        ),
+        "settings.local_llm_cv_escalation": (
+            "Erster Eskalationsschritt: kleinere lokale Auswertung unter denselben "
+            "Qualitäts-, RAM- und Laufzeit-Gates messen. Kein automatischer "
+            "Ersatz und kein zweites Modell in diesem Schritt."
+        ),
+        "settings.local_llm_cv_disabled_hint": (
+            "Der Lebenslauf-Import nutzt die mitgelieferte lokale Auswertung. "
+            "Dieser Schalter steuert nur einen separaten Diagnose-/Benchmark-Pfad "
+            "und ist hier deaktiviert."
+        ),
+        "settings.local_llm_cv_unavailable": (
+            "Diagnose-Schalter nur über Umgebungsvariable "
+            "KARRIEREKRAKE_LOCAL_LLM_CV_PARSING — nicht über die Oberfläche."
+        ),
+        "guenther.validator.unsupported_credential": (
+            "Eine behauptete Qualifikation ist im Profil nicht belegt."
+        ),
+        "guenther.validator.writing_blocked_hard_requirement": (
+            "Schreiben blockiert: formale Pflichtqualifikation fehlt im Profil."
+        ),
+        "guenther.validator.repair_exhausted": (
+            "Nach begrenzten Korrekturversuchen bleibt der Vorschlag unsicher."
+        ),
+        "guenther.validator.empty_talking_points": (
+            "Interview-Prep ohne nutzbare Talking Points trotz vorhandener Belege."
+        ),
+        "settings.automation": "Automation",
+        "settings.browser": "Browser",
+        "settings.language": "Sprache",
+        "settings.theme": "Theme",
+        "settings.theme.system": "System",
+        "settings.theme.light": "Hell",
+        "settings.theme.dark": "Dunkel",
+        "settings.start_windows": "Mit Windows starten",
+        "settings.minimize_tray": "Beim Schließen im Hintergrund (Infobereich) weiterlaufen",
+        "shutdown.busy_title": "Karrierekrake führt gerade einen Vorgang aus.",
+        "shutdown.busy_body": "Beim Beenden wird dieser Vorgang abgebrochen.",
+        "shutdown.cancel": "Abbrechen",
+        "shutdown.quit_anyway": "Karrierekrake beenden",
+        "settings.mode": "Bewerbungsmodus",
+        "settings.mode.search": "Nur Suche – nie bewerben",
+        "settings.mode.review": "Vor Absenden prüfen",
+        "settings.mode.auto": "Vollautomatisch (sichere Bewerbungen)",
+        "settings.dry_run": "Dry Run (nie endgültig absenden)",
+        "settings.sources": "Jobquellen",
+        "settings.company_sites": "Unternehmensseiten",
+        "settings.published_days": "Veröffentlichungsalter (Tage)",
+        "settings.min_match_dash": "Min. Match Anzeige",
+        "settings.search_mode": "Suchmodus",
+        "settings.search_mode.discovery": "Profil-Entdeckung (Wunschberufe optional)",
+        "settings.search_mode.explicit": "Explizite Wunschberufe",
+        "settings.jobs_per_search": "Jobs pro Suche (pro Quelle)",
+        "settings.jobs_per_search.max": "Max",
+        "settings.max_distance": "Max. Fahrtstrecke (km)",
+        "settings.auto_apply": "Auto-Apply",
+        "settings.min_match_apply": "Min. Match Auto-Apply",
+        "settings.max_per_run": "Max. Bewerbungen / Lauf",
+        "settings.max_per_day": "Max. Bewerbungen / Tag",
+        "settings.max_fail": "Max. Fehler / Lauf",
+        "settings.delay": "Pause zwischen Bewerbungen (s)",
+        "settings.auto_cover": "Automatische Anschreiben",
+        "settings.auto_submit": "Automatisch absenden",
+        "settings.run_auto": "Automatisch ausführen",
+        "settings.schedule": "Zeitplan",
+        "settings.interval": "Intervall (Stunden)",
+        "settings.times": "Zeiten",
+        "settings.paused": "Automation pausiert",
+        "settings.schedule.on_login": "Bei Windows-Anmeldung",
+        "settings.schedule.every": "Alle X Stunden",
+        "settings.schedule.once": "Einmal täglich",
+        "settings.schedule.twice": "Zweimal täglich",
+        "settings.schedule.custom": "Benutzerdefinierte Zeiten",
+        "settings.saved": "Gespeichert.",
+        "settings.lang_restart": "Die Sprache wird nach einem Neustart vollständig übernommen.",
+        "settings.no_source_status": "Noch kein Quellenstatus.",
+        "settings.source_active": "Aktiv",
+        "settings.source_ok_results": "OK mit Treffern",
+        "settings.source_ok_empty": "OK aber leer",
+        "settings.source_timeout": "Timeout",
+        "settings.source_blocked": "Blockiert",
+        "settings.source_parser": "Parser-Fehler",
+        "settings.source_network": "Netzwerkfehler",
+        "settings.source_rate": "Rate-Limit",
+        "settings.source_placeholder": "Nicht verfügbar (kein Abruf)",
+        "settings.source_cancelled": "Abgebrochen",
+        "settings.source_error": "Fehler",
+        "settings.source_login": "Login erforderlich",
+        "settings.source_unavailable": "Nicht verfügbar",
+        "settings.browser_ok": "Browser-Automatisierung: bereit",
+        "settings.browser_missing": (
+            "Browser-Automatisierung: noch nicht installiert (nur für das automatische "
+            "Ausfüllen von Bewerbungen nötig – die Jobsuche funktioniert auch ohne)."
+        ),
+        "settings.browser_missing_body": (
+            "Die Browser-Automatisierung ist noch nicht installiert. Du brauchst sie nur, "
+            "wenn Karrierekrake Bewerbungsformulare für dich ausfüllen soll – Jobsuche "
+            "und Übersicht funktionieren auch ohne.\n\n"
+            "Die Installation ist ein einmaliger Download (danach offline nutzbar) nach:\n{path}"
+        ),
+        "settings.browser_install_now": "Jetzt installieren",
+        "settings.browser_later": "Später",
+        "settings.browser_installing": "Prüfung/Reparatur läuft…",
+        "settings.browser_checking": "Browser-Komponente wird geprüft…",
+        "settings.browser_repairing": "Browser-Komponente wird repariert…",
+        "logs.refresh": "Aktualisieren",
+        "logs.empty": "Noch keine Logs.",
+        "msg.pipeline_running": "Es läuft bereits ein Auftrag.",
+        "msg.automation_paused": "Automatisierung ist pausiert. Bitte fortsetzen, um zu suchen.",
+        "msg.run_done": "Lauf abgeschlossen",
+        "msg.run_cancelled": "Lauf abgebrochen",
+        "msg.run_cancelled_body": "Die Suche wurde abgebrochen.",
+        "status.cancelled": "Abgebrochen",
+        "msg.clear_jobs_title": "Jobdaten zurücksetzen",
+        "msg.clear_jobs_body": "Alle gespeicherten Jobs, Quellenstatus und Suchläufe werden gelöscht. Dein Bewerberprofil bleibt erhalten.",
+        "msg.clear_jobs_done": "Jobdaten wurden geleert.",
+        "msg.error": "Fehler",
+        "msg.error_body": "Ein Schritt ist fehlgeschlagen. Details stehen in den Logs.\n\n{err}",
+        "msg.new": "Neu",
+        "msg.matches": "Matches",
+        "msg.applied": "Beworben",
+        "msg.review": "Review",
+        "full_time": "Vollzeit",
+        "part_time": "Teilzeit",
+        "remote": "Remote",
+        "hybrid": "Hybrid",
+        "onsite": "Vor Ort",
+        "wizard.welcome_title": "Willkommen bei Karrierekrake",
+        "wizard.welcome_body": (
+            "Diese App sucht Jobs in Deutschland, bewertet Matches und kann "
+            "optional Bewerbungen vorbereiten.\n\n"
+            "Standard: Nur Suche, Dry Run an, Automation aus."
+        ),
+        "wizard.personal": "Persönliche Daten",
+        "wizard.first_name": "Vorname",
+        "wizard.last_name": "Nachname",
+        "wizard.email": "E-Mail",
+        "wizard.phone": "Telefon",
+        "wizard.location": "Standort",
+        "wizard.address": "Heimatadresse",
+        "wizard.distance": "Max. Pendelweg",
+        "wizard.jobs": "Gewünschte Jobs",
+        "wizard.jobs_hint": "Trag deine gewünschten Jobtitel ein:",
+        "wizard.skills": "Skills & Erfahrung",
+        "wizard.cv": "Lebenslauf",
+        "wizard.cv_none": "Noch kein CV gewählt (optional)",
+        "wizard.mode": "Modus",
+        "wizard.finish": "Fertig",
+        "wizard.finish_body": (
+            "Setup abgeschlossen.\n"
+            "Du kannst später alles unter Profil und Einstellungen ändern."
+        ),
+        "field.first_name": "Vorname",
+        "field.last_name": "Nachname",
+        "field.street": "Straße",
+        "field.postal": "PLZ",
+        "field.city": "Ort",
+        "field.country": "Land",
+        "field.email": "E-Mail",
+        "field.phone": "Telefon",
+        "field.dob": "Geburtsdatum",
+        "field.license_form": "Führerschein (Formular)",
+        "field.work_auth": "Arbeitserlaubnis",
+        "field.notice": "Kündigungsfrist",
+        "field.start": "Frühester Start",
+        "field.salary": "Gehaltsvorstellung",
+        "field.current_job": "Aktuelle Position",
+        "field.edu_short": "Ausbildung (Kurztext)",
+        "field.lang_short": "Sprachen (Kurztext)",
+        "field.travel": "Reisebereitschaft",
+        "field.relocate": "Umzugsbereitschaft",
+        "field.remote_pref": "Remote-Präferenz",
+        "lang.de": "Deutsch",
+        "lang.en": "English",
+        "placeholder.add_entry": "Eintrag hinzufügen…",
+        "placeholder.job_title": "Gewünschter Beruf…",
+        "placeholder.alt_title": "Alternativer Beruf…",
+        "placeholder.exclude": "Ausschluss…",
+        "placeholder.industry": "Branche…",
+        "placeholder.skill": "Skill…",
+        "placeholder.software": "Software…",
+        "placeholder.license": "z. B. Klasse B (PKW)",
+        "col.match": "Match %",
+        "col.title": "Titel",
+        "col.company": "Firma",
+        "col.city": "Stadt",
+        "col.distance": "Fahrtstrecke",
+        "jobs.commute_drive": "ca. {km} km Fahrstrecke",
+        "jobs.commute_airline": "ca. {km} km Luftlinie",
+        "jobs.commute_road": "ca. {km} km Fahrstrecke",
+        "jobs.commute_duration": "ca. {min} Min.",
+        "jobs.commute_unknown": "Standort nicht prüfbar",
+        "jobs.commute_road_unknown": "Fahrstrecke nicht bestimmbar ({reason})",
+        "jobs.commute_road_unknown_generic": "Standort oder Route unklar",
+        "jobs.commute_remote": "Entfernung egal",
+        "col.remote": "Remote",
+        "col.explanation": "Begründung",
+        "col.model": "Modell",
+        "col.salary": "Gehalt",
+        "col.source": "Quelle",
+        "col.date": "Datum",
+        "col.status": "Status",
+
+        "btn.find_jobs": "Jobs suchen",
+        "btn.prepare_application": "Bewerbung vorbereiten",
+        "dash.page_title": "Übersicht",
+        "dash.page_subtitle": "Hier ist dein aktueller Status.",
+        "dash.next_search_title": "Als Nächstes: Jobs finden",
+        "dash.next_search_body": "Starte eine Suche bei Bundesagentur und Indeed. Dry-Run bleibt aktiv, bis du ihn in den Einstellungen änderst.",
+        "dash.next_review_title": "Als Nächstes: Warteschlange prüfen",
+        "dash.next_review_body": "Es gibt Einträge, die deine Prüfung brauchen (CAPTCHA, unklare Felder oder Review-Modus).",
+        "dash.next_profile_title": "Als Nächstes: Profil ergänzen",
+        "dash.next_profile_body": "Trag mindestens einen Wunschberuf ein, damit die Suche passende Stellen finden kann.",
+        "dash.next_profile_cta": "Zum Profil",
+        "dash.next_inbox_title.one": "1 Nachricht muss zugeordnet werden",
+        "dash.next_inbox_title.other": "{n} Nachrichten müssen zugeordnet werden",
+        "dash.next_inbox_body": "Im Postfach liegen Antworten, die nicht eindeutig zugewiesen werden konnten.",
+        "dash.next_inbox_cta": "Jetzt prüfen",
+        "jobs.page_title": "Jobs",
+        "jobs.page_subtitle": "Treffer scannen, Details prüfen, Bewerbung vorbereiten.",
+        "jobs.empty": "Noch keine Jobs. Starte eine Suche über „Jobs suchen“.",
+        "jobs.detail_empty_title": "Kein Job ausgewählt",
+        "jobs.detail_empty_body": "Wähle einen Eintrag in der Liste, um Details zu sehen.",
+        "jobs.no_description": "Keine Beschreibung gespeichert.",
+        "jobs.match_reasons": "Match-Gründe",
+        "jobs.reject_reasons": "Offene Punkte",
+        "jobs.count": "{n} Treffer",
+        "jobs.select_first": "Bitte zuerst einen Job auswählen.",
+        "jobs.no_url": "Keine URL vorhanden.",
+        "apps.page_title": "Bewerbungen",
+        "apps.export": "Übersicht exportieren …",
+        "apps.export_title": "Bewerbungsübersicht exportieren",
+        "apps.export_filter": "PDF – Nachweis für das Jobcenter (*.pdf);;Excel / CSV (*.csv)",
+        "apps.export_done": "{count} Bewerbungen gespeichert:\n{path}",
+        "apps.export_failed": "Die Datei konnte nicht gespeichert werden. Bitte einen anderen Ordner wählen.",
+        "apps.show_archive": "Archiv anzeigen",
+        "replies.title": "Neue Antwort auf deine Bewerbung",
+        "replies.intro": "Es gibt {n} neue Rückmeldung(en) von Firmen:",
+        "replies.open": "Bewerbungen öffnen",
+        "settings.reply_popups": "Pop-up, wenn eine Firma antwortet",
+        "withdraw.button": "Bewerbung zurückziehen …",
+        "withdraw.title": "Bewerbung zurückziehen",
+        "withdraw.hint": "Prüfe den Text und schicke ihn aus deinem eigenen Mailprogramm. Karrierekrake verschickt nichts selbst.",
+        "withdraw.to": "An",
+        "withdraw.to_placeholder": "E-Mail der Ansprechperson (aus der Anzeige)",
+        "withdraw.subject": "Betreff",
+        "withdraw.mark": "Danach als „zurückgezogen“ markieren",
+        "withdraw.copy": "Text kopieren",
+        "withdraw.copied": "Kopiert ✓",
+        "withdraw.open_mail": "Im Mailprogramm öffnen",
+        "withdraw.no_mail_program": "Es ist kein Mailprogramm eingerichtet. Kopiere den Text und füge ihn in dein Postfach ein.",
+        "withdraw.result": "Zurückgezogen am {day}",
+        "linkedin.button": "Von LinkedIn importieren …",
+        "linkedin.title": "LinkedIn-Import",
+        "linkedin.tip": "Lade bei LinkedIn unter Einstellungen → Datenschutz → „Kopie Ihrer Daten erhalten“ das Archiv herunter und wähle hier die ZIP-Datei. Übernommen werden Kenntnisse, Stationen, Ausbildung, Sprachen und Zertifikate – Nachrichten und Kontakte werden nicht gelesen. Alternativ: Profil → „Als PDF speichern“ und normal als Lebenslauf einlesen.",
+        "linkedin.filter": "LinkedIn-Datenexport (*.zip)",
+        "linkedin.invalid": "Das ist kein LinkedIn-Datenexport. Bitte die ZIP-Datei aus „Kopie Ihrer Daten erhalten“ wählen.",
+        "linkedin.empty": "Im Export waren keine Kenntnisse, Stationen, Ausbildung, Sprachen oder Zertifikate.",
+        "linkedin.found": "Gefunden: {skills} Kenntnisse, {positions} Stationen, {education} Ausbildungen, {languages} Sprachen, {certificates} Zertifikate.\n\nIns Profil übernehmen? Vorhandene Einträge bleiben, Doppelte werden übersprungen.",
+        "linkedin.keywords": "Stichwörter aus der Überschrift als Kenntnisse übernehmen: {words}",
+        "linkedin.apply": "Übernehmen",
+        "linkedin.done": "Übernommen. Prüfe dein Profil – die Angaben stammen aus LinkedIn.",
+        "setup.welcome.title": "Willkommen bei Karrierekrake",
+        "setup.model.local_limits": "⚠️ Wichtig: Die lokale KI ist nur so schnell wie die Grafikkarte (bzw. der Prozessor) deines Rechners. Selbst mit einer sehr guten Grafikkarte erreicht sie qualitativ nicht Server-Modelle wie ChatGPT. Bessere und schnellere Ergebnisse bekommst du mit einem Cloud-Modell – dafür gehen deine Daten an Server fremder Firmen, meist im Ausland.",
+        "apps.folder": "Bewerbungsmappe (PDF) …",
+        "apps.folder_tip": "Anschreiben mit Briefkopf und Unterschrift, dazu Lebenslauf und angehakte PDF-Unterlagen – in einer Datei zum Mitnehmen oder Mailen.",
+        "apps.folder_no_letter": "Für diese Bewerbung gibt es noch kein freigegebenes Anschreiben. Öffne die Vorschau, prüfe das Anschreiben und gib es frei.",
+        "apps.folder_done": "Bewerbungsmappe gespeichert:\n{path}",
+        "apps.folder_skipped": "Nicht enthalten (kein PDF oder nicht lesbar): {files}",
+        "apps.folder_no_signature": "Tipp: Unter Profil → Unterschrift kannst du eine eingescannte Unterschrift hinterlegen.",
+        "signature.title": "Unterschrift",
+        "signature.hint": "Optional: Eine eingescannte Unterschrift (PNG oder JPG, am besten auf weißem Papier) erscheint im Anschreiben der Bewerbungsmappe. Sie bleibt auf diesem Rechner und wird nie in Online-Formulare eingefügt. Gib PDFs mit Unterschrift nur an Stellen weiter, denen du vertraust.",
+        "signature.upload": "Unterschrift hochladen …",
+        "signature.remove": "Entfernen",
+        "signature.none": "Keine Unterschrift hinterlegt.",
+        "signature.filter": "Bilder (*.png *.jpg *.jpeg)",
+        "signature.unreadable": "Das Bild konnte nicht gelesen werden. Bitte eine PNG- oder JPG-Datei unter 10 MB wählen.",
+        "caps.title": "Was Karrierekrake kann – und was nicht",
+        "caps.can_title": "Das kann es",
+        "caps.can": "Lebenslauf einlesen – auf deinem Rechner\nJobs bei Bundesagentur für Arbeit und Indeed suchen und die Passung erklären\nAnschreiben entwerfen und dabei erfundene Angaben streichen\nBewerbungen, Antworten und Termine im Blick behalten",
+        "caps.limits_title": "Das solltest du wissen",
+        "caps.limits": "Die lokale KI ist klein: Sie schreibt schlichter und langsamer als ChatGPT oder Claude (Einlesen ca. 1–2 Min., Anschreiben 1–3 Min.).\nDein Rechner braucht mindestens 8 GB Arbeitsspeicher und rund 2 GB Platz für das Modell.\nLies jede Bewerbung vor dem Absenden selbst – ohne deine Freigabe wird nichts verschickt.\nEine Zusage kann kein Programm versprechen.",
+        "caps.tip": "Tipp: Für bessere Texte kannst du unter Einstellungen → Allgemein → „KI-Anbieter wählen“ ein Cloud-Modell mit eigenem Schlüssel einbinden.",
+        "apps.starred_only": "★ Nur markierte",
+        "apps.ad": "Stellenanzeige",
+        "apps.ad_title": "Gespeicherte Stellenanzeige",
+        "apps.ad_save_pdf": "Als PDF speichern …",
+        "apps.star": "☆ Markieren",
+        "apps.unstar": "★ Markiert",
+        "apps.star_tip": "Markiere Bewerbungen, die dir wichtig sind oder die du vor dem Absenden noch einmal prüfen willst.",
+        "apps.archive": "Archivieren",
+        "apps.unarchive": "Wieder aktivieren",
+        "apps.archived_badge": "archiviert",
+        "apps.page_subtitle": "Behalte den Stand deiner Bewerbungen im Blick.",
+        "apps.search_placeholder": "Firma oder Stelle suchen…",
+        "apps.sort_label": "Sortierung:",
+        "apps.sort_updated": "Aktualität",
+        "apps.sort_company": "Firma",
+        "apps.sort_status": "Status",
+        "apps.col_company_role": "Firma & Stelle",
+        "apps.col_next": "Nächster Schritt",
+        "apps.back": "← Zurück zur Liste",
+        "apps.alert_needs_help": "{n} Bewerbung(en) brauchen deine Hilfe",
+        "apps.alert_cta": "Jetzt prüfen",
+        "apps.empty": "Noch keine Bewerbungen.",
+        "apps.cover_yes": "ja",
+        "logs.page_title": "Protokolle",
+        "logs.page_subtitle": "Ereignisse in Alltagssprache; technische Details darunter.",
+        "logs.technical": "Technische Details",
+        "logs.read_error": "Log konnte nicht gelesen werden",
+        "logs.event.captcha": "CAPTCHA erkannt — manuelle Prüfung nötig",
+        "logs.event.review": "Eintrag wartet auf deine Prüfung",
+        "logs.event.dry_run": "Dry-Run: kein endgültiges Absenden",
+        "logs.event.search_start": "Suche gestartet",
+        "logs.event.search_done": "Suche abgeschlossen",
+        "logs.event.error": "Ein Fehler ist aufgetreten",
+        "logs.event.apply": "Bewerbungsschritt",
+        "logs.event.dedup": "Duplikat herausgefiltert",
+        "wizard.window_title": "Erste Einrichtung",
+        "wizard.step_cv_title": "1 · Lebenslauf",
+        "wizard.step_cv_body": "Optional: Lade deinen Lebenslauf hoch. Du kannst das Profil später jederzeit anpassen.",
+        "wizard.step_cv_skip": "Ohne Lebenslauf weiter — Angaben kannst du später im Profil ergänzen.",
+        "wizard.step_prefs_title": "2 · Sucheinstellungen",
+        "wizard.step_prefs_body": "Wunschberufe und Standort festlegen. Remote-Jobs in Deutschland können erlaubt werden.",
+        "wizard.step_ready_title": "4 · Wie soll Karrierekrake arbeiten?",
+        "wizard.step_ready_body": (
+            "Wähle deinen Modus für den ersten Start. Du kannst dies später jederzeit "
+            "in den Einstellungen ändern. Dry Run bleibt an — kein stiller Versand."
+        ),
+        "wizard.mode_search_title": "Nur Jobs finden",
+        "wizard.mode_search_body": (
+            "Karrierekrake sucht nach passenden Stellen und zeigt sie dir in der Übersicht."
+        ),
+        "wizard.mode_review_title": "Bewerbungen vorbereiten",
+        "wizard.mode_review_body": (
+            "Formulare und Anschreiben werden vorbereitet. Du prüfst vor dem Absenden."
+        ),
+        "wizard.cta_find_jobs": "Jobs finden",
+        "settings.advanced": "Erweitert",
+        "status_label.new": "Neu",
+        "status_label.matched": "Passend",
+        "status_label.queued": "In Warteschlange",
+        "status_label.applying": "Wird beworben",
+        "status_label.applied": "Beworben",
+        "status_label.failed": "Fehlgeschlagen",
+        "status_label.needs_review": "Prüfung nötig",
+        "status_label.captcha": "CAPTCHA",
+        "status_label.closed": "Geschlossen",
+        "status_label.skipped": "Übersprungen",
+        "status_label.unsupported_ats": "ATS nicht unterstützt",
+        "status_label.duplicate": "Duplikat",
+        "status_label.ignored": "Ignoriert",
+        "about.title": "Über Karrierekrake",
+        "about.open": "Über Karrierekrake…",
+        "about.tech": "{display} — {exe}",
+        "about.data_dir": "Deine Daten liegen lokal unter:\n{path}",
+        "about.open_data_dir": "Datenordner öffnen",
+        "cloud_ai.title": "KI-Anbieter",
+        "cloud_ai.open": "KI-Anbieter wählen …",
+        "cloud_ai.intro": (
+            "Standardmäßig liest und schreibt die lokale KI auf diesem Rechner – offline und ohne Kosten. "
+            "Optional kannst du ein Cloud-Modell mit deinem eigenen API-Schlüssel nutzen: oft schneller und auf "
+            "schwachen Rechnern besser. Die Kosten rechnet der Anbieter direkt mit dir ab, und die gewählten Daten "
+            "werden an ihn gesendet. Die Prüfung auf erfundene Angaben läuft in jedem Fall hier auf dem Rechner."
+        ),
+        "cloud_ai.provider": "Anbieter",
+        "cloud_ai.provider_local": "Nur lokal (empfohlen)",
+        "cloud_ai.key": "API-Schlüssel",
+        "cloud_ai.key_placeholder": "Schlüssel einfügen – er wird im Schlüsselbund des Systems gespeichert",
+        "cloud_ai.key_saved": "Ein Schlüssel ist gespeichert. Feld leer lassen, um ihn zu behalten.",
+        "cloud_ai.key_missing": "Noch kein Schlüssel gespeichert.",
+        "cloud_ai.key_delete": "Schlüssel löschen",
+        "cloud_ai.key_page": 'Schlüssel erstellen: <a href="{url}">{url}</a>',
+        "cloud_ai.key_invalid": "Der Schlüssel ist leer oder enthält Leerzeichen.",
+        "cloud_ai.key_store_failed": "Der Schlüssel konnte nicht im Schlüsselbund des Systems gespeichert werden.",
+        "cloud_ai.test": "Verbindung testen",
+        "cloud_ai.testing": "Verbinde mit dem Anbieter …",
+        "cloud_ai.test_ok": "Verbunden. {count} Modelle verfügbar – bitte eines auswählen.",
+        "cloud_ai.test_failed": "Die Verbindung ist fehlgeschlagen.",
+        "cloud_ai.model": "Modell",
+        "cloud_ai.tasks": "Verwenden für",
+        "cloud_ai.task_import": "Lebenslauf einlesen",
+        "cloud_ai.task_cover": "Anschreiben schreiben",
+        "cloud_ai.consent": (
+            "Für die angehakten Aufgaben werden Daten an {provider} gesendet: beim Einlesen der Text deines "
+            "Lebenslaufs, beim Anschreiben deine bestätigten Profilangaben und die Stellenanzeige. Es gelten die "
+            "Datenschutz- und Nutzungsbedingungen von {provider}."
+        ),
+        "cloud_ai.consent_box": "Ich bin einverstanden.",
+        "cloud_ai.summary_local": "KI: lokal auf diesem Rechner.",
+        "cloud_ai.summary_cloud": "KI: {provider} ({model}) für {tasks}.",
+        "about.license": (
+            "© 2026 Karrierekrake. Proprietäre Software – alle Rechte vorbehalten. "
+            "Mitgelieferte Fremdkomponenten: siehe THIRD_PARTY_NOTICES.txt im Programmordner."
+        ),
+        "about.help_hint": (
+            "So geht's: Profil ausfüllen → Jobs suchen → Treffer prüfen. "
+            "Bei Problemen: Einstellungen → Erweitert → Protokolle öffnen."
+        ),
+                "col.fit": 'Passung',
+        "jobs.fit_detail": 'Warum dieser Job',
+        "fit.sehr_passend": 'Sehr passend',
+        "fit.passend": 'Passend',
+        "fit.teilweise_passend": 'Teilweise passend',
+        "fit.nicht_passend": 'Nicht passend',
+        "fit.unbekannt": 'Passung unbekannt',
+        "fit.empty": 'Job wählen für nachvollziehbare Passung',
+        "fit.no_bullets": 'Keine strukturierten Passungsgründe hinterlegt.',
+        "fit.sort_hint": 'Sortierhinweis (intern): {n}',
+        "timeline.empty": 'Timeline — Fall wählen',
+        "timeline.no_events": 'Noch keine Lifecycle-Ereignisse.',
+        "timeline.correction": 'auditierbare Korrektur',
+        "timeline.stage.created": 'Entwurf',
+        "timeline.stage.sent": 'Gesendet',
+        "timeline.stage.received": 'Eingang bestätigt',
+        "timeline.stage.review": 'In Prüfung',
+        "timeline.stage.interview": 'Einladung',
+        "timeline.stage.scheduled": 'Gespräch vereinbart',
+        "timeline.stage.completed": 'Gespräch geführt',
+        "timeline.stage.offer": 'Angebot',
+        "timeline.stage.rejected": 'Absage',
+        "timeline.stage.manual_override": 'Manuelle Korrektur',
+        "timeline.stage.document": 'Dokumente angefragt',
+        "timeline.stage.assessment": 'Aufgabe',
+        "timeline.stage.rescheduled": 'Interview verschoben',
+        "timeline.stage.cancelled": 'Interview abgesagt',
+        "timeline.stage.followup": 'Nachgefasst',
+        "timeline.stage.withdrawn": 'Zurückgezogen',
+        "timeline.stage.ghosted": 'Keine Antwort',
+        "timeline.stage.archived": 'Archiviert',
+        "timeline.stage.other": 'Ereignis',
+        "case_status.to_apply": 'Zu bewerben',
+        "case_status.applied": 'Beworben',
+        "case_status.confirmation": 'Eingangsbestätigung',
+        "case_status.assessment": 'Assessment',
+        "case_status.interview": 'Interview',
+        "case_status.offer": 'Angebot',
+        "case_status.rejected": 'Abgelehnt',
+        "case_status.withdrawn": 'Zurückgezogen',
+        "case_status.ghosted": 'Ghosted',
+        "case_status.closed": 'Geschlossen',
+        "case_status.unknown": 'Unbekannter Status',
+        "approval.approve": 'Freigeben',
+        "approval.cancel": 'Abbrechen',
+        "approval.needs_explicit": 'Externe Aktion — Freigabe erforderlich (kein Auto-Approve).',
+        "approval.already_approved": 'Bereits freigegeben.',
+        "approval.blocked": 'Blockiert: {reason}',
+        "approval.calendar_title": 'Kalender-Vorschlag freigeben',
+        "approval.calendar_body": 'Terminvorschlag prüfen. Schreiben in den Kalender erst nach Freigabe.',
+        "approval.calendar_ack": 'Vorschlag freigegeben (noch kein Kalender-Write ohne Write-Gate).',
+        "approval.reply_title": 'Antwort-Entwurf freigeben',
+        "approval.mail_title": 'Mehrdeutige E-Mail zuordnen',
+        "approval.mail_done": 'E-Mail zugeordnet.',
+        "approval.draft_ready": 'Entwurf bereit (kein Versand ohne Send-Freigabe).',
+        "lifecycle.calendar_proposal": 'Kalender-Vorschlag',
+        "lifecycle.ambiguous": 'Mehrdeutige E-Mails (Zuordnung braucht Freigabe)',
+        "guenther.bar_hint": 'Günther — kontextuelle Hilfe (kein freier Chatbot).',
+        "guenther.bar_disabled": 'Günther-Aktionen eingeschränkt oder deaktiviert.',
+        "guenther.action.improve_cover": 'Anschreiben verbessern',
+        "guenther.action.draft_reply": 'Antwort erstellen',
+        "guenther.action.explain_job": 'Job erklären',
+        "guenther.action.prep_interview": 'Interview vorbereiten',
+        "guenther.hint.improve_cover": 'Lokale Hilfe zum Anschreiben — nur mit aktiviertem Günther.',
+        "guenther.hint.draft_reply": 'Deterministischer Antwort-Entwurf; Versand nur nach Freigabe.',
+        "guenther.hint.explain_job": 'Erklärt die Passung anhand SearchIntent und Match-Gründen.',
+        "guenther.hint.prep_interview": 'Interview-Prep aus Fall- und Job-Kontext.',
+        "brand.tagline": "FINDE. BEWIRB. BEHALTE DEN ÜBERBLICK.",
+        "cover.job_incomplete": "Die Anzeige hat keinen Beschreibungstext.",
+        "cover.no_evidence": "Das Anschreiben nutzt nur, was in deinem Profil steht, und dazu findet das Programm bei dieser Anzeige nichts Passendes. Ergänze unter Profil deine Aufgaben und Kenntnisse (zum Beispiel Programme oder Tätigkeiten aus deinen Stationen) oder wähle eine Anzeige, die näher an deiner Erfahrung liegt.",
+        "cover.demo_excluded": "Demo-Anzeigen sind von Bewerbungen und Anschreiben ausgeschlossen.",
+        "cover.action.hide_demo": "Beispiele ausblenden",
+        "cover.company_missing": "In der Anzeige fehlt der Firmenname.",
+        "cover.profile_changed_evidence_lost": "Das Profil hat sich seit der Vorschau geändert. Der Brief hat nicht mehr zwei verschiedene belegte Bezüge.",
+        "cover.preview_required": "Die Freigabe braucht die Vorschau. Bitte den Entwurf erneut öffnen.",
+        "cover.saved": "Anschreiben gespeichert.",
+        "cover.preview_stale": "Die Vorschau ist veraltet. Bitte schließe sie und öffne sie neu.",
+    },
+    "en": {
+        "app.name": "Karrierekrake",
+        "nav.dashboard": "Overview",
+        "nav.overview": "Overview",
+        "nav.jobs": "Jobs",
+        "nav.applications": "Applications",
+        "nav.inbox": "Inbox",
+        "nav.lifecycle": "Lifecycle",
+        "nav.guenther": "Günther",
+        "nav.profile": "Profile",
+        "nav.search": "Search",
+        "nav.settings": "Settings",
+        "nav.logs": "Logs",
+        "nav.help": "Help",
+        "inbox.subtitle": "Associate messages and review drafts — no silent best-match.",
+        "inbox.refresh_tooltip": "Refresh inbox",
+        "inbox.search_placeholder": "Search messages…",
+        "inbox.mirrored_account": "Local copy of your mail",
+        "inbox.linked_application": "Linked application",
+        "inbox.open_application": "Open application",
+        "inbox.no_linked_case": "Not linked to an application yet",
+        "inbox.no_selection_title": "No message selected",
+        "inbox.no_selection_body": "Select an email on the left to see details and actions.",
+        "inbox.chip_review": "? Review association",
+        "inbox.chip_linked": "✓ Linked",
+        "inbox.chip_unlinked": "Unlinked",
+        "inbox.action_prepare_reply": "Prepare reply",
+        "inbox.action_review_association": "Review association",
+        "inbox.hint_needs_association": "This message could not be associated safely.",
+        "inbox.hint_prepare_reply": "Prepare a reply draft — send only after approval.",
+        "inbox.hint_interview": "Interview context detected — prep and calendar only after approval.",
+        "inbox.more_actions": "More actions",
+        "inbox.refresh_failed": "Refresh failed",
+        "inbox.empty_title": "No new application messages",
+        "inbox.empty_body": "When Karrierekrake mirrors mail, messages appear here for calm association.",
+        "jobs.open_search_intent": "Search parameters…",
+        "search.settings": "Search settings",
+        "jobs.section_result_filters": "RESULT FILTERS (already found jobs)",
+        "jobs.more_filters": "More filters",
+        "jobs.sort_label": "Sort:",
+        "jobs.sort_match_desc": "Match (high → low)",
+        "jobs.sort_match_asc": "Match (low → high)",
+        "jobs.sort_distance_near": "Distance (near → far)",
+        "jobs.sort_distance_far": "Distance (far → near)",
+        "jobs.sort_newest": "Newest first",
+        "settings.open_diagnose_logs": "Open logs (diagnostics)",
+        "settings.nav.general": "General",
+        "settings.nav.automation": "Automation",
+        "settings.nav.communication": "Communication & scheduling",
+        "settings.nav.integrations": "Integrations",
+        "settings.nav.privacy": "Data & privacy",
+        "settings.nav.advanced": "Advanced",
+        "settings.safety_limits": "Safety limits (advanced)",
+        "settings.danger_zone": "Danger zone",
+        "lifecycle.subtitle": "Application cases, email linking, and follow-up suggestions (never auto-send).",
+        "lifecycle.followups": "Suggest follow-ups",
+        "lifecycle.link_email": "Link email",
+        "lifecycle.draft_reply": "Draft reply",
+        "lifecycle.interview_prep": "Interview prep",
+        "lifecycle.col.status": "Status",
+        "lifecycle.col.company": "Company",
+        "lifecycle.col.position": "Role",
+        "lifecycle.col.updated": "Updated",
+        "lifecycle.col.subject": "Subject",
+        "lifecycle.col.sender": "Sender",
+        "lifecycle.col.category": "Category",
+        "lifecycle.stats": "Cases: {cases} · Ambiguous emails: {ambiguous} · Open tasks: {tasks}",
+        "lifecycle.no_tasks": "No open tasks.",
+        "lifecycle.followups_done": "{n} follow-up/ghosted suggestions created (no send).",
+        "lifecycle.select_email": "Select an email first.",
+        "lifecycle.select_case": "Select an application case first.",
+        "assoc.title": "Review association",
+        "assoc.alert_title": "Association unclear",
+        "assoc.alert_body": (
+            "This sender is linked to more than one open application. "
+            "Pick the matching case — no silent best-match."
+        ),
+        "assoc.from": "From",
+        "assoc.subject": "Subject",
+        "assoc.which_application": "Which application does this message belong to?",
+        "assoc.none": "Leave unlinked",
+        "assoc.no_guess": "Nothing is linked automatically without your choice.",
+        "assoc.confirm": "Confirm association",
+        "assoc.left_unlinked": "Message stays unlinked — you can review again later.",
+        "interview.title": "Prepare interview",
+        "interview.status_received": "Interview invitation received",
+        "interview.scheduling": "Schedule & invitation",
+        "interview.no_excerpt": "No email excerpt available.",
+        "interview.calendar_hint": "Calendar proposal only after approval — no silent calendar write.",
+        "interview.prep": "Talking points",
+        "interview.no_points": "No talking points derived from the match yet.",
+        "interview.gaps": "Open gaps",
+        "interview.notes_placeholder": "Your notes for the interview…",
+        "interview.close": "Close",
+        "interview.draft_reply": "Draft reply",
+        "status.ready": "Ready",
+        "status.running": "Running…",
+        "status.apply_starting": "Application run starting…",
+        "status.apply_test_starting": "Application test starting (dry-run)…",
+        "status.search_starting": "Search starting…",
+        "msg.no_job_titles": "No search terms: set desired titles or fill the profile with experience/skills for discovery search.",
+        "msg.no_search_location": "No home location and remote search disabled — cannot query sources.",
+        "msg.empty_queries": "Search aborted: empty queries (check titles/location). Sources were not marked OK_EMPTY.",
+        "btn.suggest_titles": "Suggest titles from CV",
+        "msg.titles_suggested": "Job title suggestions were added (manual entries kept).",
+        "status.done": "Done",
+        "status.error": "Error",
+        "status.paused": "Automation paused",
+        "status.resumed": "Automation resumed",
+        "tray.running": "Still running in the system tray.",
+        "tray.unavailable": "System tray unavailable. Closing the window will quit the app.",
+        "tray.open": "Open Karrierekrake",
+        "tray.search": "Search now",
+        "tray.pause": "Pause automation",
+        "tray.resume": "Resume automation",
+        "tray.exit": "Exit",
+        "btn.search_now": "Search now",
+        "btn.cancel_search": "Cancel search",
+        "btn.clear_jobs": "Clear job data",
+        "btn.start_apply": "Start application run",
+        "btn.apply_test": "Application test",
+        "btn.pause_automation": "Pause automation",
+        "btn.resume_automation": "Resume automation",
+        "btn.review_queue": "Review queue",
+        "btn.save": "Save",
+        "btn.cancel": "Cancel",
+        "btn.ok": "OK",
+        "btn.save_profile": "Save profile",
+        "btn.save_search": "Save search intent",
+        "btn.save_settings": "Save settings",
+        "btn.add": "Add",
+        "btn.remove": "Remove",
+        "a11y.list_editor": "Entry list",
+        "a11y.status_bar": "Application status",
+        "a11y.high_contrast": "High contrast",
+        "a11y.high_contrast_hint": (
+            "Stronger borders and underlined status/errors. "
+            "Not a WCAG conformity claim."
+        ),
+        "btn.edit": "Edit",
+        "btn.filter": "Filter",
+        "btn.open_job": "Open job",
+        "btn.refresh": "Refresh",
+        "btn.open_manual": "Open manually",
+        "btn.preview_apply": "Application preview",
+        "btn.close": "Close",
+        "btn.select_cv": "Select CV",
+        "btn.import_cv": "Import profile from CV",
+        "btn.update_cv": "Update profile from CV",
+        "btn.install_browser": "Check browser component",
+        "btn.check_browser": "Check browser component",
+        "btn.repair_browser": "Repair browser component",
+        "dash.found_today": "Found today",
+        "dash.this_run": "This run",
+        "dash.new": "New",
+        "dash.matches": "Matches ≥75%",
+        "dash.kpi_matches": "Matching jobs",
+        "dash.kpi_matches_hint": "{n} new today",
+        "dash.kpi_applications": "Active applications",
+        "dash.kpi_applications_hint": "In active processes",
+        "dash.kpi_replies": "New replies",
+        "dash.kpi_replies_hint": "Need association or review",
+        "dash.kpi_review_hint": "Applications ready",
+        "dash.kpi_review_hint_captcha": "including {n} CAPTCHA",
+        "dash.section_queue": "QUEUE & ACTIONS",
+        "dash.section_kpis": "KEY METRICS",
+        "dash.section_advanced": "ADVANCED / DIAGNOSTICS",
+        "dash.more_actions": "More actions…",
+        "dash.greeting": "Good morning.",
+        "dash.greeting_sub": "Here is your current status.",
+        "dash.search_starting": "Starting search…",
+        "dash.search_cancelling": "Stopping search…",
+        "dash.search_running_title": "Search running…",
+        "dash.search_running_body": "Sources are being checked. You can cancel the search anytime.",
+        "btn.search_again": "Search again",
+        "jobs.empty_title": "No matching jobs found.",
+        "jobs.empty_body": "No role currently meets every filter. Adjust filters or open search parameters.",
+        "jobs.empty_adjust_filters": "Adjust filters",
+        "jobs.empty_search_intent": "Search parameters…",
+        "jobs.empty_widen": "Widen radius",
+        "apps.empty_title": "No applications yet",
+        "apps.empty_body": "Once you apply, your applications appear here.",
+        "apps.empty_cta": "View jobs",
+        "btn.review_only": "Needs review only",
+        "dash.applied": "Applied",
+        "dash.needs_review": "Needs review",
+        "dash.captcha": "CAPTCHA",
+        "dash.errors": "Errors",
+        "dash.mode": "Mode",
+        "dash.dry_run": "Dry run",
+        "dash.automation": "Automation",
+        "dash.on": "on",
+        "dash.off": "off",
+        "dash.paused": "paused",
+        "dash.active": "active",
+        "dash.last_search": "Last search",
+        "dash.next_run": "Next scheduled run",
+        "dash.home_missing": (
+            "No home location yet. Add a city or postal code in your profile so jobs "
+            "can be filtered by distance."
+        ),
+        "dash.kpi_open_hint": "Click to open",
+        "dash.home_plz_hint": (
+            "Location cannot be checked. Please enter a postal code — "
+            "without a postal code no place is guessed and the radius filter is skipped."
+        ),
+        "dash.home_resolved": "Home location resolved: {place}. Distance filter active.",
+        "dash.home_checking": "Distance is being determined …",
+        "dash.home_index_unavailable": (
+            "Location data for {country} is missing. "
+            "Search therefore runs without a distance filter."
+        ),
+        "dash.home_not_found": (
+            "“{place}” was not found. Search runs without a distance filter."
+        ),
+        "dash.home_change_place": "Enter a different place",
+        "jobs.distance_skipped": "Radius skipped — please enter a postal code",
+        "dash.run_stats": "Run stats",
+        "apps.preview_title": "Prepare application",
+        "apps.preview_prepare_title": "Prepare application",
+        "apps.preview_will_submit": "Final submit would be allowed.",
+        "apps.preview_no_submit": "Final submit is blocked.",
+        "apps.preview_status_draft": "Draft – will not be sent",
+        "apps.preview_status_ready": "Draft reviewed – send only after approval",
+        "apps.preview_confirm_draft": "Confirm draft",
+        "apps.preview_status_check": "Check needed",
+        "apps.preview_claim_blocked": (
+            "‚{sentence}‘\n"
+            "Confirm class {classes} in the driving-license field or remove the entry from your skills."
+        ),
+        "apps.preview_findings_intro": (
+            "Please check each notice on its own. “Confirm draft” is available "
+            "once you have confirmed every notice."
+        ),
+        "apps.preview_finding_confirm": "Approve anyway",
+        "apps.preview_finding_save_failed": (
+            "Confirmation could not be saved. This sentence is not approved yet. Please try again."
+        ),
+        "apps.preview_finding_line": "“{sentence}”\n{reason}",
+        "apps.preview_finding_a11y": "Approve anyway: “{sentence}”. {reason}",
+        "apps.preview_reason_native_level": (
+            "Your profile says {profile}; the letter claims a native language."
+        ),
+        "apps.preview_reason_native_missing": (
+            "Your profile does not list {language} as a native language; the letter claims it is."
+        ),
+        "apps.preview_reason_native_unnamed": (
+            "The letter claims a native language that your profile does not confirm as native."
+        ),
+        "apps.preview_reason_gender": (
+            "The letter describes you with a gendered form. Your profile says nothing about this."
+        ),
+        "apps.preview_reason_salutation": (
+            "The ad names a contact person. Expected: “{expected}”."
+        ),
+        "apps.preview_reason_salutation_generic": "The salutation does not match the ad.",
+        "apps.preview_draft_intro": (
+            "New draft with notices. Your current text stays until you confirm every notice "
+            "and adopt the new text."
+        ),
+        "apps.preview_draft_adopt": "Adopt new text",
+        "apps.preview_draft_keep": "Keep current text",
+        "apps.preview_draft_view": "New draft",
+        "apps.preview_draft_rejected": (
+            "The new draft was not adopted: it contains a statement your profile does not "
+            "support (“{sentence}”). Your current text stays unchanged."
+        ),
+        "apps.preview_claim_blocked_generic": (
+            "The letter states something your profile does not confirm. "
+            "Confirm it in your profile."
+        ),
+        "apps.preview_section_cv": "Resume",
+        "apps.preview_section_cover": "Cover letter",
+        "apps.preview_section_form": "Form data",
+        "apps.preview_section_answers": "Answers / screening",
+        "apps.preview_cv_missing": "No resume on file — please add one in your profile.",
+        "apps.preview_cv_role_note": "Active document: {role}",
+        "apps.preview_cover_missing": "No cover letter yet.",
+        "apps.preview_form_empty": "No form data detected.",
+        "apps.preview_unknown_fields": "Unknown fields",
+        "apps.preview_tech_details": "Technical details",
+        "apps.preview_tech_warnings": "Technical notes",
+        "apps.preview_tech_url": "URL",
+        "apps.preview_tech_ats": "ATS",
+        "apps.preview_tech_mode": "Mode",
+        "apps.preview_tech_dry_run": "Dry-run",
+        "apps.preview_tech_submit_allowed": "submit_allowed",
+        "apps.preview_tech_will_submit": "will_submit",
+        "apps.preview_tech_gate": "quality_gate",
+        "apps.preview_tech_match": "Match",
+        "apps.preview_tech_ats_note": "ATS note",
+        "apps.preview_tech_document": "Document",
+        "apps.preview_hint_no_send": "Nothing will be sent — only the draft is reviewed.",
+        "apps.preview_hint_no_auto_send": "Automatic submission is turned off.",
+        "apps.preview_hint_manual_finish": "Automation unavailable — please finish manually.",
+        "apps.preview_hint_partial_fill": "Fields are prefilled; please review before finishing.",
+        "apps.gate_ready": "Ready to prepare",
+        "apps.gate_warning": "Please review",
+        "apps.gate_blocked": "CV/profile blocked",
+        "jobs.min_match": "Min. match",
+        "jobs.max_km": "Max. km",
+        "jobs.city": "City",
+        "jobs.title": "Title",
+        "jobs.company": "Company",
+        "jobs.source": "Source",
+        "jobs.status": "Status",
+        "jobs.all": "All",
+        "apps.date": "Date",
+        "apps.ats": "ATS",
+        "apps.match": "Match",
+        "apps.cv": "CV",
+        "apps.cover": "Cover letter",
+        "apps.error": "Error / reason",
+        "profile.career": "Career preferences",
+        "profile.desired": "Desired roles (search intent)",
+        "profile.alternative": "Alternative roles (deprecated — use Desired roles)",
+        "profile.excluded": "Exclusions",
+        "profile.industries": "Industries",
+        "profile.industries_ex": "Exclude industries",
+        "profile.subtitle": "Who am I? Qualifications, experience, and application data — not the current search wish.",
+        "profile.import_from_cv": "Import from CV",
+        "profile.edit": "Edit",
+        "profile.add": "Add",
+        "profile.expand": "Expand",
+        "profile.collapse": "Collapse",
+        "profile.replace_cv": "Replace",
+        "profile.card_personal": "Personal details",
+        "profile.card_career": "Career goal",
+        "profile.card_application": "Application details",
+        "profile.card_docs": "Documents & links",
+        "profile.card_skills": "Skills & software",
+        "profile.card_skills_certs": "Skills, software & training",
+        "profile.desired_short": "Desired roles",
+        "profile.present": "present",
+        "profile.empty_section": "No entries yet.",
+        "profile.empty_tags": "None listed",
+        "profile.more_tags": "+ {n} more",
+        "profile.show_more_entry": "+ show 1 more entry",
+        "profile.show_more_entries": "+ show {n} more entries",
+        "profile.cv_meta": "CV used for applications",
+        "profile.no_linkedin": "No LinkedIn link saved",
+        "profile.location": "Home & reachability",
+        "profile.experience": "Work experience",
+        "profile.education": "Education",
+        "profile.qualifications": "Qualifications",
+        "profile.skills": "Skills",
+        "profile.software": "Software",
+        "profile.certificates": "Certificates / training",
+        "profile.license": "Driving license",
+        "profile.languages": "Languages",
+        "profile.location_work": "Location & work model",
+        "profile.home": "Home address",
+        "profile.postal": "Postal code",
+        "profile.commute": "Radius (driving distance)",
+        "profile.commute_airline": "Radius (driving distance; straight-line prefilter only)",
+        "profile.geo_dataset": "Geo dataset",
+        "profile.geo_update": "Update geo data",
+        "profile.geo_status_ok": "Installed: {version} ({source})",
+        "profile.geo_status_bad": "Geo data unavailable: {message}",
+        "profile.allow_remote": "Allow fully remote (DE)",
+        "profile.allow_hybrid": "Allow hybrid",
+        "profile.country": "Country",
+        "profile.work_model": "Work model",
+        "profile.min_salary": "Minimum salary (EUR gross / year)",
+        "profile.pref_companies": "Preferred companies",
+        "profile.ex_companies": "Excluded companies",
+        "profile.app_data": "Application data",
+        "profile.sync_home_address": "Also use this address as the job search location.",
+        "profile.custom_search_home": "Custom search location saved. The contact address is no longer copied.",
+        "profile.cv": "CV",
+        "profile.no_cv": "No CV selected",
+        "profile.saved": "Saved.",
+        "profile.licence_recovered": "Restored from an older import. Please check and save.",
+        "profile.licence_uncertain": "Not recognised with certainty: {classes}. Please enter the exact class.",
+        "profile.licence_unknown_kept": (
+            "Not recognised with certainty: {entries}. These entries stay saved unchanged."
+        ),
+        "profile.licence_review": "Review",
+        "profile.no_changes": "No changes.",
+        "search.subtitle": "What am I looking for now? Explicit search intent — independent of profile evidence.",
+        "search.roles_skills": "Target roles, skills & keywords",
+        "search.target_roles": "Target roles",
+        "search.mandatory_skills": "Mandatory skills",
+        "search.excluded_roles": "Excluded roles",
+        "search.excluded_skills": "Excluded skills",
+        "search.excluded_keywords": "Exclusion keywords",
+        "search.required_keywords": "Required keywords",
+        "search.preferred_skills": "Preferred skills (bonus)",
+        "search.preferred_skills_tip": "Jobs with these skills move up; jobs without them are not dropped.",
+        "search.preferred_industries": "Preferred industries",
+        "search.excluded_industries": "Exclude industries",
+        "search.preferred_companies": "Preferred companies",
+        "search.excluded_companies": "Exclude companies",
+        "search.published_within": "Ads from the last",
+        "search.days_suffix": " days",
+        "search.conditions": "Location, model & conditions",
+        "search.remote_mode": "Remote / hybrid / onsite",
+        "search.remote_unset": "Not set",
+        "search.radius": "Radius (straight-line, km)",
+        "search.countries": "Countries (DE / AT / CH)",
+        "search.working_time": "Working time",
+        "search.weekly_hours": "Hours per week",
+        "search.hours_to": "to",
+        "search.hours_any": "any",
+        "search.weekly_hours_tip": "When the ad states weekly hours, Karrierekrake shows whether they fit your range.",
+        "search.work_days": "Working days",
+        "search.work_days_tip": "Nothing ticked = any. Without Saturday/Sunday, Karrierekrake points out ads with weekend work.",
+        "search.day_mo": "Mon", "search.day_di": "Tue", "search.day_mi": "Wed", "search.day_do": "Thu",
+        "search.day_fr": "Fri", "search.day_sa": "Sat", "search.day_so": "Sun",
+        "search.employment_types": "Employment type",
+        "search.emp_permanent": "Permanent",
+        "search.emp_temporary": "Temporary",
+        "search.emp_contract": "Contract / freelance",
+        "search.salary_min": "Minimum salary (EUR gross / year)",
+        "search.strictness": "Search strictness",
+        "search.strictness_label": "Mode",
+        "search.strictness_unset": "Not chosen yet",
+        "search.strictness_strict": "STRICT — only explicit target roles / mandatory skills",
+        "search.strictness_balanced": "BALANCED — intent leads, limited expansion",
+        "search.strictness_explore": "EXPLORE — broader discovery (excludes stay hard)",
+        "search.strictness_hint": "STRICT is never silently expanded. With target roles but no choice, filtering uses the safe STRICT reading.",
+        "search.needs_review": "Please review (migration / conflicts):",
+        "search.saved": "Search intent saved.",
+        "profile.cv_saved": "CV saved.\nYou can now use “Import profile from CV”.",
+        "profile.cv_updated": "Profile updated.",
+        "profile.reset": "Reset profile",
+        "profile.reset_title": "Reset profile",
+        "profile.reset_cv_only": "Clear CV-derived data only",
+        "profile.reset_all": "Clear profile + documents",
+        "profile.reset_wipe_all_local": "Delete all local Karrierekrake data",
+        "profile.reset_choose_scope": (
+            "Choose a scope:\n"
+            "• CV data only — imported qualifications/fields; manual entries kept.\n"
+            "• Profile + documents — applicant data, qualifications, stored CVs. "
+            "Search preferences kept.\n"
+            "• All local data — config, job database, logs, CVs, and cache."
+        ),
+        "profile.reset_confirm_cv": (
+            "Clear all data imported from CVs and stored CV files?\n"
+            "Manually entered entries will be kept.\n"
+            "Search preferences are not changed."
+        ),
+        "profile.reset_confirm_all": (
+            "Clear the application profile and stored documents (CVs)?\n"
+            "Removes: name, contact, qualifications, answers, CV files.\n"
+            "Keeps: search preferences (titles, location, filters), settings, job history.\n"
+            "This cannot be undone."
+        ),
+        "profile.reset_confirm_wipe_all": (
+            "Delete ALL local Karrierekrake data?\n"
+            "Removes: profile, search preferences, settings, job database, logs, CVs, cache.\n"
+            "A short config backup is created when possible.\n"
+            "This cannot be undone."
+        ),
+        "profile.reset_done": "Profile reset.",
+        "profile.reset_wipe_done": "All local Karrierekrake data has been deleted.",
+        "profile.reset_wipe_failed": (
+            "Deletion could not be verified. Success was not confirmed — "
+            "check logs and try again."
+        ),
+        "privacy.tab": "Privacy",
+        "privacy.title": "Data & deletion",
+        "privacy.intro": (
+            "Karrierekrake stores your profile, CV, jobs and applications locally "
+            "on this device. There is no Karrierekrake account and no telemetry. "
+            "Data only leaves this computer through actions you start — for example "
+            "a job search on job portals, an application, or connecting email and "
+            "calendar. You can export or delete your data here at any time."
+        ),
+        "privacy.export": "Export my data…",
+        "privacy.export_confirm": (
+            "Export includes personal data (never OAuth tokens). Continue?"
+        ),
+        "privacy.export_confirm_btn": "Export",
+        "privacy.connect_confirm_btn": "Connect",
+        "privacy.delete_confirm_btn": "Delete",
+        "privacy.delete_all_confirm_btn": "Delete everything",
+        "privacy.delete_mail_confirm": (
+            "Delete the local mail cache? Your mailbox at the provider stays unchanged."
+        ),
+        "privacy.delete_calendar_confirm": (
+            "Delete the local calendar cache? Your calendar at the provider stays unchanged."
+        ),
+        "privacy.delete_logs_confirm": (
+            "Delete all local logs? They are only needed for troubleshooting."
+        ),
+        "integrations.disconnect_confirm": (
+            "Disconnect the selected account? Stored credentials are removed; "
+            "you can reconnect later."
+        ),
+        "integrations.disconnect_confirm_btn": "Disconnect",
+        "dialog.confirm": "Confirm",
+        "privacy.export_done": "Export saved:",
+        "privacy.export_failed": "Export failed or cancelled.",
+        "privacy.disconnect_google": "Disconnect Google",
+        "integrations.mail.label": "Email",
+        "integrations.mail.none": "None",
+        "integrations.mail.google": "Google",
+        "integrations.mail.microsoft": "Microsoft",
+        "integrations.mail.other": "Other provider",
+        "integrations.calendar.label": "Calendar",
+        "integrations.calendar.google": "Google",
+        "integrations.calendar.microsoft": "Microsoft",
+        "integrations.calendar.other": "Other provider",
+        "integrations.calendar.none_explicit": "No calendar",
+        "integrations.calendar.mode_label": "Google Calendar feature",
+        "integrations.calendar.mode_a": "Check availability only",
+        "integrations.calendar.mode_b": "Check availability and add confirmed events",
+        "integrations.calendar.mode_a_rights": (
+            "Karrierekrake only asks Google for free/busy times. "
+            "Event titles and descriptions are not read. "
+            "Data stays on this PC; there is no Karrierekrake server."
+        ),
+        "integrations.calendar.mode_b_rights": (
+            "In addition to free/busy, Karrierekrake may create events in your "
+            "own calendar after you approve them. "
+            "Invitations are never accepted automatically. "
+            "Data stays on this PC; there is no Karrierekrake server."
+        ),
+        "integrations.calendar.mode_a_confirm": (
+            "Connect Google account (availability only)?\n\n"
+            "Only free and busy times are queried. Event details stay private. "
+            "The connection goes directly to Google."
+        ),
+        "integrations.calendar.mode_b_confirm": (
+            "Connect Google account (availability + write events)?\n\n"
+            "Karrierekrake may read free/busy and, after your approval, "
+            "create events in your own calendar. "
+            "Connection goes directly to Google — no Karrierekrake server."
+        ),
+        "integrations.no_fallback_hint": (
+            "Gmail and Google Calendar can be connected independently. "
+            "If the connection fails, reconnect the affected Google account."
+        ),
+        "integrations.status.unknown": "Status: unknown",
+        "integrations.connect_caldav": 'Connect CalDAV calendar',
+        "integrations.connect_imap": 'Connect IMAP mailbox',
+        "integrations.credentials_hint": 'Credentials are saved in the operating system credential store. Use an app password if required by your provider.',
+        "integrations.server": 'Server',
+        "integrations.username": 'Username',
+        "integrations.password": 'Password / app password',
+        "integrations.select_calendar": 'Select calendar',
+        "integrations.status.checking": "Checking connection…",
+        "integrations.status.none": "Status: not selected",
+        "integrations.status.connected": "Status: connected",
+        "integrations.status.not_connected": "Status: not connected (API probe missing or failed)",
+        "integrations.status.probe_required": "Status: token present — API probe pending",
+        "integrations.connect_microsoft_mail": "Connect Microsoft mail",
+        "integrations.connect_microsoft_calendar": "Connect Microsoft calendar",
+        "integrations.disconnect_selected": "Disconnect selected",
+        "integrations.wrong_mail_provider": "Select the matching email provider first.",
+        "integrations.wrong_calendar_provider": "Select the matching calendar provider first.",
+        "integrations.microsoft_client_missing": (
+            "Microsoft client ID is missing. Set microsoft_client_id in settings "
+            "or env KARRIEREKRAKE_MS_CLIENT_ID "
+            "(Azure app registration, public client / PKCE)."
+        ),
+        "integrations.microsoft_browser_opened": "System browser opened — finish sign-in there.",
+        "integrations.probe_failed": "Sign-in stored a token but the API probe failed. Not marked connected.",
+        "privacy.connect_gmail": "Connect Gmail (read-only)",
+        "privacy.connect_gmail_confirm": (
+            "Karrierekrake requests only gmail.readonly to associate application "
+            "emails. No send/modify. The system browser will open."
+        ),
+        "privacy.connect_calendar": "Connect Google Calendar",
+        "privacy.connect_calendar_confirm": (
+            "Connect Google Calendar? Permissions depend on the selected mode "
+            "(availability only, or availability + write events)."
+        ),
+        "privacy.connect_ok": "Google account connected.",
+        "privacy.connect_failed": (
+            "Google connection failed. Check the client file and network, then retry — "
+            "or cancel and skip."
+        ),
+        "privacy.connect_cancelled": (
+            "Sign-in cancelled. Nothing was connected — you can try again anytime."
+        ),
+        "privacy.connect_missing_client": (
+            "Google client file missing. Place the Desktop OAuth file at "
+            "private/gmail_credentials.json (Google Cloud Console → Desktop client), "
+            "then connect again."
+        ),
+        "privacy.connect_libs_missing": "Google libraries are missing in this install.",
+        "privacy.connect_production_not_ready": (
+            "Google OAuth is not production-ready yet (privacy/homepage URL or verification). "
+            "Complete the OAuth consent screen in Google Cloud Console."
+        ),
+        "privacy.connect_client_config": (
+            "Invalid Google client configuration (redirect/port). "
+            "Check the Desktop OAuth client and GMAIL_OAUTH_PORT."
+        ),
+        "privacy.connect_keyring": (
+            "Tokens could not be stored securely (OS keyring). "
+            "Unlock the keyring and connect again."
+        ),
+        "privacy.connect_revoked": (
+            "The saved Google sign-in was revoked or expired. Please connect again."
+        ),
+        "privacy.connect_probe_failed": (
+            "Sign-in possible, but the Google API did not respond. "
+            "Check the network and try again."
+        ),
+        "privacy.connect_partial": (
+            "Partial consent: not all requested permissions were granted. "
+            "Related features stay disabled."
+        ),
+        "privacy.connect_ms_cancelled": (
+            "Microsoft sign-in cancelled. Nothing was connected."
+        ),
+        "privacy.connect_ms_failed": "Microsoft connection failed ({detail}).",
+        "wizard.step_integrations_title": "3 · Mail & calendar (optional)",
+        "wizard.step_integrations_body": (
+            "Optional: connect mailbox and calendar. You can skip and finish later "
+            "under Settings → Integrations."
+        ),
+        "wizard.integrations_skip": "Continue without connecting",
+        "wizard.integrations_google": "Google",
+        "wizard.integrations_gmail": "Gmail (read-only)",
+        "wizard.integrations_gcal": "Google Calendar",
+        "wizard.integrations_both": "Gmail and Calendar",
+        "wizard.integrations_microsoft_mail": "Microsoft Mail",
+        "wizard.integrations_microsoft_cal": "Microsoft Calendar",
+        "wizard.integrations_connect": "Connect selected…",
+        "wizard.integrations_status_idle": "Not connected yet — skipping is fine.",
+        "wizard.integrations_status_ok": "Connected.",
+        "wizard.integrations_status_failed": (
+            "Connection not established (no successful login stored)."
+        ),
+        "wizard.reopen": "Open setup wizard again",
+        "settings.source_company_sites_hint": (
+            "Company sites: web discovery of career and job pages plus public "
+            "Greenhouse/Lever boards. Only extracted job postings; "
+            "not every website can be read automatically."
+        ),
+        "settings.source_linkedin_hint": (
+            "LinkedIn: limited guest search. Timeouts are shown — no access bypass."
+        ),
+        "privacy.delete_mail": "Delete mail cache",
+        "privacy.delete_calendar": "Delete calendar cache",
+        "privacy.delete_logs": "Delete logs",
+        "privacy.delete_all": "Delete ALL local data",
+        "privacy.action_ok": "Done and verified.",
+        "privacy.action_failed": "Action failed or was not verified.",
+        "cv_import.title": "Import profile from CV",
+        "cv_import.intro": "Review detected data. Recommended: replace profile from CV.",
+        "cv_import.mode": "Import mode",
+        "cv_import.mode_replace": "Replace profile from CV (recommended)",
+        "cv_import.mode_merge": "Merge with existing profile",
+        "cv_import.mode_hint": "Replace removes old CV data before applying. Merge adds without duplicates.",
+        "cv_import.detected": "Detected profile",
+        "cv_import.personal": "Personal data",
+        "cv_import.will_replace": "Will replace / update",
+        "cv_import.will_keep": "Will keep",
+        "cv_import.old_cv_quals": "Previous CV qualifications",
+        "cv_import.keep_manual_quals": "Manually entered qualifications",
+        "cv_import.conflicts": "Conflicts (manual vs CV)",
+        "cv_import.use_cv": "Use CV value",
+        "cv_import.keep_current": "Keep current value",
+        "cv_import.current": "Current",
+        "cv_import.apply": "Apply",
+        "cv_import.file": "File",
+        "cv_import.none": "nothing detected",
+        "cv_import.not_detected": "Not found in document",
+        "cv_import.confidence": "Detection status",
+        "cv_import.review_items": "Needs review (unclear / reclassified)",
+        "cv_import.read_error": "Could not read:",
+        "cv_import.parsing": "Reading the CV … The window stays responsive.",
+        "cv_import.ready": "CV read. Review it, then apply.",
+        "cv_import.retry": "Try again",
+        "cv_import.oom": (
+            "Out of memory. Your entries are unchanged. "
+            "There is no automatic restart — try again manually."
+        ),
+        "cv_import.timeout": (
+            "Reading timed out. Your entries are unchanged. Try again manually."
+        ),
+        "cv_import.cancelled": "Reading cancelled. Nothing was applied.",
+        "cv_import.cancel_btn": "Cancel",
+        "cv_import.close": "Close",
+        "cv_import.progress": "Reading the CV…",
+        "cv_import.read_again": "Read again",
+        "cv_import.choose_other": "Choose another file",
+        "cv_import.empty_title": "Nothing detected",
+        "cv_import.empty_body": (
+            "No profile data was detected in this file. Nothing was applied. "
+            "Choose another file or close the dialog."
+        ),
+        "cv_import.error_memory_exceeded": (
+            "For this file, the AI model needs more memory than Karrierekrake may use for it. "
+            "Nothing was applied. Choose a smaller model or enter your profile yourself."
+        ),
+        "cv_import.error_memory_exceeded_no_smaller": (
+            "For this file, the AI model needs more memory than Karrierekrake may use for it. "
+            "Nothing was applied. Enter your profile yourself."
+        ),
+        "cv_import.error_memory_busy": (
+            "Other programs are using a lot of memory right now. Nothing was applied. "
+            "Close some programs, then try again."
+        ),
+        "cv_import.choose_smaller_model": "Choose a smaller model",
+        "cv_import.enter_profile_manually": "Enter profile yourself",
+        "cv_import.error_oom": (
+            "Not enough memory to read this file. Nothing was applied. "
+            "Karrierekrake will not restart this on its own."
+        ),
+        "cv_import.error_timeout": (
+            "Reading took too long and was stopped. Nothing was applied. "
+            "It will not be tried again automatically."
+        ),
+        "cv_import.error_generic": (
+            "The file could not be read. The path and your entries stay as they are."
+        ),
+        "cv_import.error_model_missing": (
+            "The local CV model is missing from this installation. "
+            "Please reinstall Karrierekrake. Nothing was applied."
+        ),
+        "cv_import.error_llama_missing": (
+            "Local CV analysis is missing from this installation. "
+            "Please reinstall Karrierekrake. Nothing was applied."
+        ),
+        "cv_import.error_llm_unavailable": (
+            "Local CV analysis is temporarily unavailable. "
+            "Please try again or restart Karrierekrake."
+        ),
+        "cv_import.error_docpick_missing": (
+            "CV analysis is missing from this installation. "
+            "Please reinstall Karrierekrake."
+        ),
+        "cv_import.error_empty_file": (
+            "The file is empty or has no readable text. Please choose another file."
+        ),
+        "cv_import.error_unreadable": (
+            "The file could not be read as PDF or Word document. Please choose another file."
+        ),
+        "cv_import.error_extract_failed": (
+            "The CV could not be read reliably. Please complete fields manually. "
+            "Nothing was applied."
+        ),
+        "cv_import.error_unreliable": (
+            "Without name and contact the result is not reliable. "
+            "Please fill the profile manually. Nothing was applied."
+        ),
+        "cv_import.error_incomplete": (
+            "Languages, skills, software or certificates were not fully recognized. "
+            "Nothing was applied. Please retry or enter the missing details manually."
+        ),
+        "cv_import.empty": (
+            "Nothing was found in the document. Enter the profile manually "
+            "or read the file again."
+        ),
+        "cv_import.manual_profile": "Enter profile manually",
+        "cv_import.pipeline": "CV import",
+        "cv_import.pipeline_det": "Analysed on this device – the CV was not sent to the internet.",
+        "cv_import.manual_hint": (
+            "Please complete fields manually. There is no automatic substitute import."
+        ),
+        "cv_import.needs_review": "Please review the results and fill missing fields manually.",
+        "cv_import.extracting": "Reading CV…",
+        "cv_import.extracting_hint": "The UI stays responsive. Reading can take 1–2 minutes. Cancel closes the dialog; abort takes effect between stages.",
+        "cv_import.extract_done": "Reading finished — review and apply.",
+        "cv_import.progress_preflight": "Checking local analysis…",
+        "cv_import.progress_pdf": "Reading PDF…",
+        "cv_import.progress_model": "Analyzing CV…",
+        "btn.reset_profile": "Reset profile",
+        "settings.general": "General",
+        "settings.appearance": "Appearance",
+        "settings.search": "Search",
+        "settings.applications": "Applications",
+        "settings.lifecycle": "After applying",
+        "settings.preferred_contact": "Preferred contact",
+        "settings.phone_available": "Offer phone availability",
+        "settings.telephone_availability": "Phone windows",
+        "settings.working_hours": "Working hours (calendar)",
+        "settings.follow_up_days": "Follow up after (days)",
+        "settings.ghosted_days": "Ghosted hint after (days)",
+        "settings.archive_after_days": "Archive without activity after (days)",
+        "settings.archive_never": "never",
+        "templates.open": "Cover letter templates …",
+        "templates.title": "Cover letter templates",
+        "templates.intro": "A template sets the structure and tone of your cover letter. Karrierekrake fills in company, position and your checked skills through placeholders; the fact check runs as always.",
+        "templates.standard": "Standard (built in)",
+        "templates.delete": "Delete",
+        "templates.placeholders": "Placeholders:",
+        "templates.name": "Template name",
+        "templates.save": "Save as template",
+        "templates.use": "Use this template",
+        "templates.from_letter": "From my own letter",
+        "templates.generate": "Generate template",
+        "templates.generate_prompt": "Which style? Karrierekrake still fills in only checked facts.",
+        "templates.from_letter_hint": "Paste a cover letter you wrote yourself. Company, position, your name and the salutation become placeholders. Then check for sentences that only fit that one company.",
+        "templates.company_in_letter": "Company in the letter",
+        "templates.position_in_letter": "Position in the letter",
+        "templates.name_in_letter": "Your name in the letter",
+        "templates.default_name": "My letter",
+        "templates.company_not_found": "The company name did not appear in the text. Put {company} in the right place yourself.",
+        "templates.error_name_missing": "Please give the template a name.",
+        "templates.error_text_missing": "The template is empty.",
+        "templates.error_text_too_long": "The template is too long (at most 20,000 characters).",
+        "settings.transfer_export": "Export settings and profile …",
+        "settings.transfer_import": "Import settings and profile …",
+        "settings.transfer_import_go": "Import",
+        "settings.transfer_confirm": "Profile, skills, search wishes and settings are replaced by the file. CV files, applications and accounts stay unchanged.",
+        "settings.transfer_tip": "For a new computer: transfers settings, profile, skills, keywords, search wishes and applicant data. The file contains personal data – keep it safe. Not included: CV files, applications, accounts, keys. Turn on automatic and mail sending yourself on the new computer.",
+        "settings.transfer_exported": "Settings saved:\n{path}",
+        "settings.transfer_imported": "Profile and settings applied ({applied} settings changed, {skipped} deliberately left out, e.g. automatic sending).",
+        "settings.transfer_invalid": "This file is not a Karrierekrake settings file or comes from a newer version.",
+        "settings.archive_after_days_tip": "Applications without a reply or new step move to the archive after this time. Status and history are kept, and the export still includes them. 0 = never.",
+        "settings.followup_enabled": "Follow-up / ghosting hints enabled",
+        "settings.followup_reminders_enabled": "Persistent follow-up reminders (no auto-send)",
+        "settings.email_draft_only": "Employer email draft-only (default)",
+        "settings.allow_employer_email_send": "Allow real send (still requires per-mail approval)",
+        "settings.guenther": "Günther die Krake",
+        "settings.guenther_enabled": "Günther (always on, local only)",
+        "settings.guenther_model": "Writing help",
+        "settings.guenther_model.sole": "Local writing help (bundled)",
+        "settings.guenther_model.phi_only": "Local writing help (bundled)",
+        "settings.guenther_model.auto": "Automatic (local writing help)",
+        "settings.guenther_model.primary": "Recommended — local writing help",
+        "settings.guenther_model.light": "Removed — no second model",
+        "settings.guenther_model.legacy4b": "Removed — no second model",
+        "settings.guenther_model.standard": "Removed — no second model",
+        "settings.guenther_model.alt": "Recommended — local writing help",
+        "settings.guenther_hint": (
+            "Günther is always on and uses the bundled local writing help "
+            "(cover letters, emails, motivation texts). "
+            "If writing help is missing: feature unavailable "
+            "(no silent substitute). Günther suggests — Karrierekrake decides."
+        ),
+        "settings.guenther_writer_status_on": "Writing help: active (local, bundled)",
+        "settings.guenther_writer_status_off": "Writing help: active (local, bundled)",
+        "settings.guenther_writer_unavailable": (
+            "Writing help: missing from this installation — please reinstall."
+        ),
+        "settings.cv_import_path_title": "CV import",
+        "settings.cv_import_path_body": (
+            "CVs are analyzed locally and offline. "
+            "Model and runtime ship with the installation."
+        ),
+        "settings.cv_import_status_ready": "CV import: ready (local, offline)",
+        "settings.cv_import_status_unavailable": (
+            "CV import: local analysis unavailable — please reinstall Karrierekrake."
+        ),
+        "settings.local_llm_cv_parsing": "Local CV analysis (diagnostic switch)",
+        "settings.local_llm_cv_kill": (
+            "Local CV analysis is removed on this hardware; "
+            "manual profile import remains available."
+        ),
+        "settings.local_llm_cv_escalation": (
+            "First escalation: measure a smaller local analysis under the same "
+            "quality, RAM, and runtime gates. No automatic substitute and "
+            "no second model in this step."
+        ),
+        "settings.local_llm_cv_disabled_hint": (
+            "CV import uses the bundled local analysis. "
+            "This switch only controls a separate diagnostic/benchmark path "
+            "and is disabled here."
+        ),
+        "settings.local_llm_cv_unavailable": (
+            "Diagnostic switch only via env "
+            "KARRIEREKRAKE_LOCAL_LLM_CV_PARSING — not via the UI."
+        ),
+        "guenther.validator.unsupported_credential": (
+            "A claimed qualification is not supported by the profile."
+        ),
+        "guenther.validator.writing_blocked_hard_requirement": (
+            "Writing blocked: a required formal credential is missing from the profile."
+        ),
+        "guenther.validator.repair_exhausted": (
+            "After bounded repair attempts the suggestion remains uncertain."
+        ),
+        "guenther.validator.empty_talking_points": (
+            "Interview prep has no usable talking points despite available evidence."
+        ),
+        "settings.automation": "Automation",
+        "settings.browser": "Browser",
+        "settings.language": "Language",
+        "settings.theme": "Theme",
+        "settings.theme.system": "System",
+        "settings.theme.light": "Light",
+        "settings.theme.dark": "Dark",
+        "settings.start_windows": "Start with Windows",
+        "settings.minimize_tray": "Keep running in the background (system tray) when closing",
+        "shutdown.busy_title": "Karrierekrake is currently running an operation.",
+        "shutdown.busy_body": "Closing will abort this operation.",
+        "shutdown.cancel": "Cancel",
+        "shutdown.quit_anyway": "Quit Karrierekrake",
+        "settings.mode": "Application mode",
+        "settings.mode.search": "Search only – never apply",
+        "settings.mode.review": "Review before submit",
+        "settings.mode.auto": "Fully automatic (safe applications)",
+        "settings.dry_run": "Dry run (never finally submit)",
+        "settings.sources": "Job sources",
+        "settings.company_sites": "Company sites",
+        "settings.published_days": "Publication age (days)",
+        "settings.min_match_dash": "Min. match (display)",
+        "settings.search_mode": "Search mode",
+        "settings.search_mode.discovery": "Profile discovery (titles optional)",
+        "settings.search_mode.explicit": "Explicit desired titles",
+        "settings.jobs_per_search": "Jobs per search (per source)",
+        "settings.jobs_per_search.max": "Max",
+        "settings.max_distance": "Max. drive distance (km)",
+        "settings.auto_apply": "Auto-apply",
+        "settings.min_match_apply": "Min. match auto-apply",
+        "settings.max_per_run": "Max. applications / run",
+        "settings.max_per_day": "Max. applications / day",
+        "settings.max_fail": "Max. failures / run",
+        "settings.delay": "Delay between applications (s)",
+        "settings.auto_cover": "Automatic cover letters",
+        "settings.auto_submit": "Submit automatically",
+        "settings.run_auto": "Run automatically",
+        "settings.schedule": "Schedule",
+        "settings.interval": "Interval (hours)",
+        "settings.times": "Times",
+        "settings.paused": "Automation paused",
+        "settings.schedule.on_login": "On Windows login",
+        "settings.schedule.every": "Every X hours",
+        "settings.schedule.once": "Once daily",
+        "settings.schedule.twice": "Twice daily",
+        "settings.schedule.custom": "Custom times",
+        "settings.saved": "Saved.",
+        "settings.lang_restart": "The language will be fully applied after a restart.",
+        "settings.no_source_status": "No source status yet.",
+        "settings.source_active": "Active",
+        "settings.source_ok_results": "OK with results",
+        "settings.source_ok_empty": "OK but empty",
+        "settings.source_timeout": "Timeout",
+        "settings.source_blocked": "Blocked",
+        "settings.source_parser": "Parser error",
+        "settings.source_network": "Network error",
+        "settings.source_rate": "Rate limited",
+        "settings.source_placeholder": "Unavailable (no fetch)",
+        "settings.source_cancelled": "Cancelled",
+        "settings.source_error": "Error",
+        "settings.source_login": "Login required",
+        "settings.source_unavailable": "Unavailable",
+        "settings.browser_ok": "Browser component: ready",
+        "settings.browser_missing": (
+            "Browser component: not installed yet (only needed to fill in application "
+            "forms automatically — job search works without it)."
+        ),
+        "settings.browser_missing_body": (
+            "The browser component is not installed yet. You only need it if Karrierekrake "
+            "should fill in application forms for you — job search and the overview work "
+            "without it.\n\n"
+            "Installing is a one-time download (works offline afterwards) to:\n{path}"
+        ),
+        "settings.browser_install_now": "Install now",
+        "settings.browser_later": "Later",
+        "settings.browser_installing": "Check/repair in progress…",
+        "settings.browser_checking": "Checking browser component…",
+        "settings.browser_repairing": "Repairing browser component…",
+        "logs.refresh": "Refresh",
+        "logs.empty": "No logs yet.",
+        "msg.pipeline_running": "A job is already running.",
+        "msg.automation_paused": "Automation is paused. Resume to start a search.",
+        "msg.run_done": "Run finished",
+        "msg.run_cancelled": "Run cancelled",
+        "msg.run_cancelled_body": "The search was cancelled.",
+        "status.cancelled": "Cancelled",
+        "msg.clear_jobs_title": "Clear job data",
+        "msg.clear_jobs_body": "All stored jobs, source status and search runs will be deleted. Your applicant profile is kept.",
+        "msg.clear_jobs_done": "Job data cleared.",
+        "msg.error": "Error",
+        "msg.error_body": "A step failed. Details are in the logs.\n\n{err}",
+        "msg.new": "New",
+        "msg.matches": "Matches",
+        "msg.applied": "Applied",
+        "msg.review": "Review",
+        "full_time": "Full-time",
+        "part_time": "Part-time",
+        "remote": "Remote",
+        "hybrid": "Hybrid",
+        "onsite": "On-site",
+        "wizard.welcome_title": "Welcome to Karrierekrake",
+        "wizard.welcome_body": (
+            "This app searches jobs in Germany, scores matches and can "
+            "optionally prepare applications.\n\n"
+            "Defaults: Search only, Dry run on, Automation off."
+        ),
+        "wizard.personal": "Personal details",
+        "wizard.first_name": "First name",
+        "wizard.last_name": "Last name",
+        "wizard.email": "Email",
+        "wizard.phone": "Phone",
+        "wizard.location": "Location",
+        "wizard.address": "Home address",
+        "wizard.distance": "Max. commute",
+        "wizard.jobs": "Desired jobs",
+        "wizard.jobs_hint": "Enter desired job titles:",
+        "wizard.skills": "Skills & experience",
+        "wizard.cv": "CV",
+        "wizard.cv_none": "No CV selected yet (optional)",
+        "wizard.mode": "Mode",
+        "wizard.finish": "Done",
+        "wizard.finish_body": (
+            "Setup complete.\n"
+            "You can change everything later under Profile and Settings."
+        ),
+        "field.first_name": "First name",
+        "field.last_name": "Last name",
+        "field.street": "Street",
+        "field.postal": "Postal code",
+        "field.city": "City",
+        "field.country": "Country",
+        "field.email": "Email",
+        "field.phone": "Phone",
+        "field.dob": "Date of birth",
+        "field.license_form": "Driving license (form)",
+        "field.work_auth": "Work authorization",
+        "field.notice": "Notice period",
+        "field.start": "Earliest start",
+        "field.salary": "Salary expectation",
+        "field.current_job": "Current role",
+        "field.edu_short": "Education (short)",
+        "field.lang_short": "Languages (short)",
+        "field.travel": "Willingness to travel",
+        "field.relocate": "Willingness to relocate",
+        "field.remote_pref": "Remote preference",
+        "lang.de": "Deutsch",
+        "lang.en": "English",
+        "placeholder.add_entry": "Add entry…",
+        "placeholder.job_title": "Desired role…",
+        "placeholder.alt_title": "Alternative role…",
+        "placeholder.exclude": "Exclusion…",
+        "placeholder.industry": "Industry…",
+        "placeholder.skill": "Skill…",
+        "placeholder.software": "Software…",
+        "placeholder.license": "e.g. Class B",
+        "col.match": "Match %",
+        "col.title": "Title",
+        "col.company": "Company",
+        "col.city": "City",
+        "col.distance": "Drive distance",
+        "jobs.commute_drive": "approx. {km} km driving distance",
+        "jobs.commute_airline": "approx. {km} km straight-line",
+        "jobs.commute_road": "approx. {km} km driving distance",
+        "jobs.commute_duration": "approx. {min} min",
+        "jobs.commute_unknown": "Location not verifiable",
+        "jobs.commute_road_unknown": "Driving distance not determinable ({reason})",
+        "jobs.commute_road_unknown_generic": "place or route unclear",
+        "jobs.commute_remote": "distance does not matter",
+        "col.remote": "Remote",
+        "col.explanation": "Why",
+        "col.model": "Model",
+        "col.salary": "Salary",
+        "col.source": "Source",
+        "col.date": "Date",
+        "col.status": "Status",
+
+        "btn.find_jobs": "Find jobs",
+        "btn.prepare_application": "Prepare application",
+        "dash.page_title": "Overview",
+        "dash.page_subtitle": "Here is your current status.",
+        "dash.next_search_title": "Next: find jobs",
+        "dash.next_search_body": "Start a search on Bundesagentur and Indeed. Dry-run stays on until you change it in Settings.",
+        "dash.next_review_title": "Next: review the queue",
+        "dash.next_review_body": "Some entries need your attention (CAPTCHA, unclear fields, or review mode).",
+        "dash.next_profile_title": "Next: complete your profile",
+        "dash.next_profile_body": "Add at least one desired job title so search can find matching roles.",
+        "dash.next_profile_cta": "Go to profile",
+        "dash.next_inbox_title.one": "1 message needs association",
+        "dash.next_inbox_title.other": "{n} messages need association",
+        "dash.next_inbox_body": "Your inbox has employer replies that could not be matched uniquely.",
+        "dash.next_inbox_cta": "Review now",
+        "jobs.page_title": "Jobs",
+        "jobs.page_subtitle": "Scan matches, inspect details, prepare an application.",
+        "jobs.empty": "No jobs yet. Start a search with “Find jobs”.",
+        "jobs.detail_empty_title": "No job selected",
+        "jobs.detail_empty_body": "Select a row to see details.",
+        "jobs.no_description": "No description stored.",
+        "jobs.match_reasons": "Match reasons",
+        "jobs.reject_reasons": "Open issues",
+        "jobs.count": "{n} results",
+        "jobs.select_first": "Please select a job first.",
+        "jobs.no_url": "No URL available.",
+        "apps.page_title": "Applications",
+        "apps.export": "Export overview …",
+        "apps.export_title": "Export application overview",
+        "apps.export_filter": "PDF – proof of applications (*.pdf);;Excel / CSV (*.csv)",
+        "apps.export_done": "{count} applications saved:\n{path}",
+        "apps.export_failed": "The file could not be saved. Please choose another folder.",
+        "apps.show_archive": "Show archive",
+        "replies.title": "New reply to your application",
+        "replies.intro": "There are {n} new reply/replies from companies:",
+        "replies.open": "Open applications",
+        "settings.reply_popups": "Pop-up when a company replies",
+        "withdraw.button": "Withdraw application …",
+        "withdraw.title": "Withdraw application",
+        "withdraw.hint": "Check the text and send it from your own mail program. Karrierekrake never sends it itself.",
+        "withdraw.to": "To",
+        "withdraw.to_placeholder": "Contact's email (from the ad)",
+        "withdraw.subject": "Subject",
+        "withdraw.mark": "Mark as “withdrawn” afterwards",
+        "withdraw.copy": "Copy text",
+        "withdraw.copied": "Copied ✓",
+        "withdraw.open_mail": "Open in mail program",
+        "withdraw.no_mail_program": "No mail program is set up. Copy the text and paste it into your mailbox.",
+        "withdraw.result": "Withdrawn on {day}",
+        "linkedin.button": "Import from LinkedIn …",
+        "linkedin.title": "LinkedIn import",
+        "linkedin.tip": "On LinkedIn go to Settings → Data privacy → “Get a copy of your data”, download the archive and choose the ZIP file here. Skills, positions, education, languages and certificates are imported – messages and contacts are not read. Alternatively: Profile → “Save to PDF” and import it as a CV.",
+        "linkedin.filter": "LinkedIn data export (*.zip)",
+        "linkedin.invalid": "This is not a LinkedIn data export. Please choose the ZIP file from “Get a copy of your data”.",
+        "linkedin.empty": "The export had no skills, positions, education, languages or certificates.",
+        "linkedin.found": "Found: {skills} skills, {positions} positions, {education} education entries, {languages} languages, {certificates} certificates.\n\nAdd them to your profile? Existing entries stay, duplicates are skipped.",
+        "linkedin.keywords": "Add keywords from the headline as skills: {words}",
+        "linkedin.apply": "Add",
+        "linkedin.done": "Added. Check your profile – these entries come from LinkedIn.",
+        "setup.welcome.title": "Welcome to Karrierekrake",
+        "setup.model.local_limits": "⚠️ Important: the local AI is only as fast as your computer's graphics card (or processor). Even with a very good graphics card it does not reach the quality of server models such as ChatGPT. A cloud model gives better and faster results – but then your data goes to servers of other companies, usually abroad.",
+        "apps.folder": "Application folder (PDF) …",
+        "apps.folder_tip": "Cover letter with letterhead and signature, plus CV and ticked PDF documents – in one file to take along or email.",
+        "apps.folder_no_letter": "This application has no approved cover letter yet. Open the preview, check the letter and approve it.",
+        "apps.folder_done": "Application folder saved:\n{path}",
+        "apps.folder_skipped": "Not included (not a PDF or not readable): {files}",
+        "apps.folder_no_signature": "Tip: under Profile → Signature you can add a scanned signature.",
+        "signature.title": "Signature",
+        "signature.hint": "Optional: a scanned signature (PNG or JPG, ideally on white paper) appears in the cover letter of the application folder. It stays on this computer and is never put into online forms. Only share PDFs with your signature with people you trust.",
+        "signature.upload": "Upload signature …",
+        "signature.remove": "Remove",
+        "signature.none": "No signature saved.",
+        "signature.filter": "Images (*.png *.jpg *.jpeg)",
+        "signature.unreadable": "The image could not be read. Please choose a PNG or JPG file under 10 MB.",
+        "caps.title": "What Karrierekrake can do – and what it can't",
+        "caps.can_title": "What it does",
+        "caps.can": "Reads your CV – on your computer\nSearches jobs at the German Federal Employment Agency and Indeed and explains the fit\nDrafts cover letters and removes made-up claims\nKeeps track of applications, replies and appointments",
+        "caps.limits_title": "Good to know",
+        "caps.limits": "The local AI is small: it writes more plainly and more slowly than ChatGPT or Claude (import about 1–2 min, cover letter 1–3 min).\nYour computer needs at least 8 GB of memory and about 2 GB of space for the model.\nRead every application yourself before sending – nothing is sent without your approval.\nNo program can promise you a job offer.",
+        "caps.tip": "Tip: for better texts you can add a cloud model with your own key under Settings → General → “Choose AI provider”.",
+        "apps.starred_only": "★ Starred only",
+        "apps.ad": "Job ad",
+        "apps.ad_title": "Saved job ad",
+        "apps.ad_save_pdf": "Save as PDF …",
+        "apps.star": "☆ Star",
+        "apps.unstar": "★ Starred",
+        "apps.star_tip": "Star applications that matter to you or that you want to check again before sending.",
+        "apps.archive": "Archive",
+        "apps.unarchive": "Make active again",
+        "apps.archived_badge": "archived",
+        "apps.page_subtitle": "Human-readable statuses — stored enum values are unchanged.",
+        "apps.search_placeholder": "Search company or role…",
+        "apps.sort_label": "Sort:",
+        "apps.sort_updated": "Recency",
+        "apps.sort_company": "Company",
+        "apps.sort_status": "Status",
+        "apps.col_company_role": "Company & role",
+        "apps.col_next": "Next step",
+        "apps.back": "← Back to list",
+        "apps.alert_needs_help": "{n} application(s) need your help",
+        "apps.alert_cta": "Review now",
+        "apps.empty": "No applications yet.",
+        "apps.cover_yes": "yes",
+        "logs.page_title": "Logs",
+        "logs.page_subtitle": "Plain-language events; technical details below.",
+        "logs.technical": "Technical details",
+        "logs.read_error": "Could not read log",
+        "logs.event.captcha": "CAPTCHA detected — manual review needed",
+        "logs.event.review": "Entry waiting for your review",
+        "logs.event.dry_run": "Dry-run: no final submit",
+        "logs.event.search_start": "Search started",
+        "logs.event.search_done": "Search finished",
+        "logs.event.error": "An error occurred",
+        "logs.event.apply": "Application step",
+        "logs.event.dedup": "Duplicate filtered out",
+        "wizard.window_title": "First-run setup",
+        "wizard.step_cv_title": "1 · CV",
+        "wizard.step_cv_body": "Optional: upload your CV. You can refine the profile later anytime.",
+        "wizard.step_cv_skip": "Continue without a CV — add details later under Profile.",
+        "wizard.step_prefs_title": "2 · Search preferences",
+        "wizard.step_prefs_body": "Set desired roles and location. Fully remote jobs in Germany can be allowed.",
+        "wizard.step_ready_title": "4 · How should Karrierekrake work?",
+        "wizard.step_ready_body": (
+            "Choose your first-run mode. You can change this anytime in Settings. "
+            "Dry-run stays on — nothing is sent silently."
+        ),
+        "wizard.mode_search_title": "Find jobs only",
+        "wizard.mode_search_body": (
+            "Karrierekrake searches for matching roles and shows them on the overview."
+        ),
+        "wizard.mode_review_title": "Prepare applications",
+        "wizard.mode_review_body": (
+            "Forms and cover letters are prepared. You review before anything is submitted."
+        ),
+        "wizard.cta_find_jobs": "Find jobs",
+        "settings.advanced": "Advanced",
+        "status_label.new": "New",
+        "status_label.matched": "Matched",
+        "status_label.queued": "Queued",
+        "status_label.applying": "Applying",
+        "status_label.applied": "Applied",
+        "status_label.failed": "Failed",
+        "status_label.needs_review": "Needs review",
+        "status_label.captcha": "CAPTCHA",
+        "status_label.closed": "Closed",
+        "status_label.skipped": "Skipped",
+        "status_label.unsupported_ats": "Unsupported ATS",
+        "status_label.duplicate": "Duplicate",
+        "status_label.ignored": "Ignored",
+        "about.title": "About Karrierekrake",
+        "about.open": "About Karrierekrake…",
+        "about.tech": "{display} — {exe}",
+        "about.data_dir": "Your data is stored locally in:\n{path}",
+        "about.open_data_dir": "Open data folder",
+        "cloud_ai.title": "AI provider",
+        "cloud_ai.open": "Choose AI provider …",
+        "cloud_ai.intro": (
+            "By default the local AI on this computer reads CVs and writes letters – offline and free. "
+            "Optionally you can use a cloud model with your own API key: often faster and better on slower "
+            "computers. The provider bills you directly, and the chosen data is sent to it. The check for "
+            "invented facts always runs here on this computer."
+        ),
+        "cloud_ai.provider": "Provider",
+        "cloud_ai.provider_local": "Local only (recommended)",
+        "cloud_ai.key": "API key",
+        "cloud_ai.key_placeholder": "Paste your key – it is stored in the system's credential store",
+        "cloud_ai.key_saved": "A key is stored. Leave the field empty to keep it.",
+        "cloud_ai.key_missing": "No key stored yet.",
+        "cloud_ai.key_delete": "Delete key",
+        "cloud_ai.key_page": 'Create a key: <a href="{url}">{url}</a>',
+        "cloud_ai.key_invalid": "The key is empty or contains spaces.",
+        "cloud_ai.key_store_failed": "The key could not be stored in the system's credential store.",
+        "cloud_ai.test": "Test connection",
+        "cloud_ai.testing": "Connecting to the provider …",
+        "cloud_ai.test_ok": "Connected. {count} models available – please choose one.",
+        "cloud_ai.test_failed": "The connection failed.",
+        "cloud_ai.model": "Model",
+        "cloud_ai.tasks": "Use for",
+        "cloud_ai.task_import": "Reading CVs",
+        "cloud_ai.task_cover": "Writing cover letters",
+        "cloud_ai.consent": (
+            "For the ticked tasks, data is sent to {provider}: the text of your CV when reading it, your "
+            "confirmed profile details and the job ad when writing a cover letter. The privacy and usage terms "
+            "of {provider} apply."
+        ),
+        "cloud_ai.consent_box": "I agree.",
+        "cloud_ai.summary_local": "AI: local on this computer.",
+        "cloud_ai.summary_cloud": "AI: {provider} ({model}) for {tasks}.",
+        "about.license": (
+            "© 2026 Karrierekrake. Proprietary software – all rights reserved. "
+            "Bundled third-party components: see THIRD_PARTY_NOTICES.txt in the program folder."
+        ),
+        "about.help_hint": (
+            "How it works: complete your profile → find jobs → review matches. "
+            "Having trouble? Settings → Advanced → Open logs."
+        ),
+                "col.fit": 'Fit',
+        "jobs.fit_detail": 'Why this job',
+        "fit.sehr_passend": 'Strong fit',
+        "fit.passend": 'Good fit',
+        "fit.teilweise_passend": 'Partial fit',
+        "fit.nicht_passend": 'Not a fit',
+        "fit.unbekannt": 'Fit unknown',
+        "fit.empty": 'Select a job for an explainable fit',
+        "fit.no_bullets": 'No structured fit reasons stored.',
+        "fit.sort_hint": 'Sort hint (internal): {n}',
+        "timeline.empty": 'Timeline — select a case',
+        "timeline.no_events": 'No lifecycle events yet.',
+        "timeline.correction": 'auditable correction',
+        "timeline.stage.created": 'Created',
+        "timeline.stage.sent": 'Sent',
+        "timeline.stage.received": 'Received',
+        "timeline.stage.review": 'Review',
+        "timeline.stage.interview": 'Interview',
+        "timeline.stage.scheduled": 'Scheduled',
+        "timeline.stage.completed": 'Completed',
+        "timeline.stage.offer": 'Offer',
+        "timeline.stage.rejected": 'Rejected',
+        "timeline.stage.manual_override": 'Manual correction',
+        "timeline.stage.document": 'Documents requested',
+        "timeline.stage.assessment": 'Assessment',
+        "timeline.stage.rescheduled": 'Interview rescheduled',
+        "timeline.stage.cancelled": 'Interview cancelled',
+        "timeline.stage.followup": 'Follow-up sent',
+        "timeline.stage.withdrawn": 'Withdrawn',
+        "timeline.stage.ghosted": 'Ghosted',
+        "timeline.stage.archived": 'Archived',
+        "timeline.stage.other": 'Event',
+        "case_status.to_apply": 'To apply',
+        "case_status.applied": 'Applied',
+        "case_status.confirmation": 'Confirmation',
+        "case_status.assessment": 'Assessment',
+        "case_status.interview": 'Interview',
+        "case_status.offer": 'Offer',
+        "case_status.rejected": 'Rejected',
+        "case_status.withdrawn": 'Withdrawn',
+        "case_status.ghosted": 'Ghosted',
+        "case_status.closed": 'Closed',
+        "case_status.unknown": 'Unknown status',
+        "approval.approve": 'Approve',
+        "approval.cancel": 'Cancel',
+        "approval.needs_explicit": 'External action — explicit approval required (no auto-approve).',
+        "approval.already_approved": 'Already approved.',
+        "approval.blocked": 'Blocked: {reason}',
+        "approval.calendar_title": 'Approve calendar proposal',
+        "approval.calendar_body": 'Review the proposed slot. Calendar write only after approval.',
+        "approval.calendar_ack": 'Proposal approved (still no calendar write without write gate).',
+        "approval.reply_title": 'Approve reply draft',
+        "approval.mail_title": 'Link ambiguous email',
+        "approval.mail_done": 'Email linked.',
+        "approval.draft_ready": 'Draft ready (no send without send approval).',
+        "lifecycle.calendar_proposal": 'Calendar proposal',
+        "lifecycle.ambiguous": 'Ambiguous emails (linking requires approval)',
+        "guenther.bar_hint": 'Günther — contextual help (not a free chatbot).',
+        "guenther.bar_disabled": 'Günther actions limited or disabled.',
+        "guenther.action.improve_cover": 'Improve cover letter',
+        "guenther.action.draft_reply": 'Create reply',
+        "guenther.action.explain_job": 'Explain job',
+        "guenther.action.prep_interview": 'Prepare interview',
+        "guenther.hint.improve_cover": 'Local cover-letter help — requires Günther enabled.',
+        "guenther.hint.draft_reply": 'Deterministic reply draft; send only after approval.',
+        "guenther.hint.explain_job": 'Explains fit from SearchIntent and match reasons.',
+        "guenther.hint.prep_interview": 'Interview prep from case and job context.',
+        "brand.tagline": "FIND. APPLY. KEEP THE OVERVIEW.",
+        "cover.job_incomplete": "The job ad has no description.",
+        "cover.no_evidence": "The cover letter only uses what is in your profile, and nothing in it matches this ad. Add your tasks and skills under Profile (for example programs or duties from your positions) or pick an ad closer to your experience.",
+        "cover.demo_excluded": "Demo listings are excluded from applications and cover letters.",
+        "cover.action.hide_demo": "Hide examples",
+        "cover.company_missing": "The company name is missing from the job ad.",
+        "cover.profile_changed_evidence_lost": "The profile changed since the preview. The letter no longer has two different evidenced references.",
+        "cover.preview_required": "Approval needs the preview. Open the draft again.",
+        "cover.saved": "Cover letter saved.",
+        "cover.preview_stale": "The preview is out of date. Please close it and open it again.",
+    },
+}
+
+
+TRANSLATIONS["de"].update({
+    "updates.title": "Programm-Updates",
+    "updates.startup": "Updates werden beim Start im Hintergrund geprüft.",
+    "updates.check": "Nach Updates suchen",
+    "updates.install": "Update herunterladen und installieren",
+    "updates.model_install": "KI-Modell herunterladen und installieren",
+    "updates.initial": "Erstinstallation: Das lokale KI-Modell fehlt. Lade es einmal herunter; spätere Programmupdates behalten es.",
+    "updates.rollback": "Das letzte Update ist fehlgeschlagen. Die vorherige Version wurde wiederhergestellt. Du kannst das Update erneut versuchen.",
+    "updates.legacy": "Automatische Updates sind im neuen Windows-Installationspaket verfügbar. Diese Version muss einmal manuell ersetzt werden.",
+    "updates.offline": "Updateprüfung nicht erreichbar. Bitte später erneut versuchen.",
+    "updates.error_code": "Fehlercode: {code} (für die Fehleranalyse kopieren)",
+    "updates.model_choice_required": "Karrierekrake wählt auf diesem Gerät kein Modell automatisch aus. Wähle in den Einstellungen unter „Günther die Krake“ ein Modell und lade es dort herunter.",
+    "updates.no_model_fits": "Keines der Modelle passt in den Arbeitsspeicher dieses Geräts. Deine bisherige Version bleibt erhalten.",
+    "updates.model_not_selectable": "Das gewählte Modell passt nicht zu diesem Gerät. Wähle in den Einstellungen unter „Günther die Krake“ ein anderes Modell.",
+    "updates.failure": "Update fehlgeschlagen. Prüfe Internetverbindung, freien Speicher und Schreibrechte. Deine bisherige Version bleibt erhalten.",
+    "updates.checking": "Suche nach Updates …",
+    "updates.notice": "Update verfügbar – Einstellungen öffnen",
+    "updates.model_notice": "Lokale KI-Auswertung einrichten – Einstellungen öffnen",
+    "updates.model_missing": "Das lokale KI-Modell fehlt. Lade es einmal herunter, um Lebensläufe und Anschreiben lokal zu verarbeiten.",
+    "updates.current": "Du verwendest die aktuelle Version.",
+    "updates.confirm_title": "Update installieren",
+    "updates.confirm": "Das Update wird heruntergeladen. Anschließend wird Karrierekrake geschlossen und neu gestartet. Speichere vorher offene Änderungen. Jetzt fortfahren?",
+    "updates.downloading": "Update wird heruntergeladen und geprüft …",
+    "updates.launch_failed": "Installation konnte nicht gestartet werden. Deine bisherige Version bleibt erhalten.",
+    "updates.restarting": "Update geprüft. Karrierekrake wird für die Installation geschlossen …",
+    "updates.version": "Installierte Version: {version}",
+    "updates.development": "Entwicklungsversion",
+    "updates.available": "Neue Version verfügbar. Download: {megabytes} MB. Unveränderte Komponenten bleiben erhalten.",
+    "updates.progress": "Download: {percent} % ({done} / {total} MB) – danach wird das Update geprüft."
+})
+TRANSLATIONS["en"].update({
+    "updates.title": "Application updates",
+    "updates.startup": "Updates are checked in the background at startup.",
+    "updates.check": "Check for updates",
+    "updates.install": "Download and install update",
+    "updates.model_install": "Download and install local AI model",
+    "updates.initial": "First installation: download the local AI model once. Future app updates keep it.",
+    "updates.rollback": "The last update failed and the previous version was restored. You can retry the update.",
+    "updates.legacy": "Automatic updates are available in the new Windows installation package. Replace this version manually once.",
+    "updates.offline": "Update checks are unavailable. Please try again later.",
+    "updates.error_code": "Error code: {code} (copy for troubleshooting)",
+    "updates.model_choice_required": "Karrierekrake doesn't pick a model automatically on this device. Choose a model under “Günther die Krake” in Settings and download it there.",
+    "updates.no_model_fits": "None of the models fits this device's memory. Your current version is preserved.",
+    "updates.model_not_selectable": "The selected model doesn't fit this device. Choose a different model under “Günther die Krake” in Settings.",
+    "updates.failure": "Update failed. Check your connection, free space and write permissions. Your current version is preserved.",
+    "updates.checking": "Checking for updates …",
+    "updates.notice": "Update available – open Settings",
+    "updates.model_notice": "Set up local AI processing – open Settings",
+    "updates.model_missing": "Download the local AI model once to process CVs and cover letters locally.",
+    "updates.current": "You are using the current version.",
+    "updates.confirm_title": "Install update",
+    "updates.confirm": "The update will download, then Karrierekrake will close and restart. Save any open changes first. Continue?",
+    "updates.downloading": "Downloading and verifying update …",
+    "updates.launch_failed": "The installer could not start. Your current version is preserved.",
+    "updates.restarting": "Update verified. Closing Karrierekrake to install …",
+    "updates.version": "Installed version: {version}",
+    "updates.development": "Development version",
+    "updates.available": "New version available. Download: {megabytes} MB. Unchanged components are retained.",
+    "updates.progress": "Download: {percent}% ({done} / {total} MB) – verification follows."
+})
+
+
+class TranslationService:
+    """Simple dictionary-based i18n with live listeners."""
+
+    def __init__(self, language: str = "de") -> None:
+        self._language = language if language in TRANSLATIONS else "de"
+        self._listeners: list[Callable[[], None]] = []
+
+    @property
+    def language(self) -> str:
+        return self._language
+
+    def set_language(self, language: str) -> None:
+        lang = language if language in TRANSLATIONS else "de"
+        if lang == self._language:
+            return
+        self._language = lang
+        for cb in list(self._listeners):
+            try:
+                cb()
+            except Exception:
+                pass
+
+    def t(self, key: str, **kwargs: str) -> str:
+        table = TRANSLATIONS.get(self._language) or TRANSLATIONS["de"]
+        text = table.get(key) or TRANSLATIONS["de"].get(key) or key
+        if kwargs:
+            try:
+                return text.format(**kwargs)
+            except Exception:
+                return text
+        return text
+
+    def register(self, callback: Callable[[], None]) -> None:
+        if callback not in self._listeners:
+            self._listeners.append(callback)
+
+    def unregister(self, callback: Callable[[], None]) -> None:
+        if callback in self._listeners:
+            self._listeners.remove(callback)
+
+    def has_key(self, key: str) -> bool:
+        return key in TRANSLATIONS["de"] and key in TRANSLATIONS["en"]
+
+
+# Device report (guenther.device_check): one line naming the model the setup
+# wizard picks (wizard display name, fit statement only, no quality claim) and
+# a neutral line for the bundled model (not a second recommendation).
+TRANSLATIONS['de'].update({
+    'device_report.fitting_model': 'Passendes Modell für dieses Gerät: {name}',
+    'device_report.bundled_model': 'Mitgeliefertes Modell: {name}',
+})
+TRANSLATIONS['en'].update({
+    'device_report.fitting_model': 'Model that fits this device: {name}',
+    'device_report.bundled_model': 'Bundled model: {name}',
+})
+
+# Process-wide instance; language is set from config at startup.
+i18n = TranslationService("de")
+
+
+def tr(key: str, **kwargs: str) -> str:
+    return i18n.t(key, **kwargs)
+
+
+def de_en(de: str, en: str) -> str:
+    """A short text given in both languages at the place it is used (for texts without a table key)."""
+    return en if i18n.language == "en" else de
+
+
+# Fixed names. Never a country code, never a resolver reason string.
+_HOME_COUNTRY_NAMES = {
+    "de": {
+        "DE": "Deutschland",
+        "AT": "Österreich",
+        "CH": "Schweiz",
+        "NL": "Niederlande",
+        "BE": "Belgien",
+    },
+    "en": {
+        "DE": "Germany",
+        "AT": "Austria",
+        "CH": "Switzerland",
+        "NL": "Netherlands",
+        "BE": "Belgium",
+    },
+}
+
+
+def home_country_label(country_code: str) -> str:
+    """Display name for a home country. Empty when the code is not in the map."""
+    from core.geo_normalize import normalize_country_code
+
+    cc = normalize_country_code(country_code) or ""
+    table = _HOME_COUNTRY_NAMES.get(i18n.language) or _HOME_COUNTRY_NAMES["de"]
+    return table.get(cc) or _HOME_COUNTRY_NAMES["de"].get(cc, "")
+
+
+def escape_mnemonic(text: str) -> str:
+    """Keep a literal "&" in widgets that treat it as a shortcut marker (QGroupBox titles)."""
+    return (text or "").replace("&", "&&")
+
+
+def tr_n(key: str, n: int, **kwargs: str) -> str:
+    """Count-aware lookup: ``{key}.one`` for n == 1, else ``{key}.other``."""
+    suffix = "one" if int(n) == 1 else "other"
+    return i18n.t(f"{key}.{suffix}", n=str(n), **kwargs)
+
+
+def install_qt_translator(app, lang: str) -> None:
+    """Localize Qt's own standard buttons/dialog strings (best effort)."""
+    from PySide6.QtCore import QLibraryInfo, QTranslator
+
+    previous = getattr(app, "_karrierekrake_qt_translator", None)
+    if previous is not None:
+        app.removeTranslator(previous)
+        app._karrierekrake_qt_translator = None
+    translator = QTranslator(app)
+    path = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    if translator.load(f"qtbase_{lang}", path):
+        app.installTranslator(translator)
+        app._karrierekrake_qt_translator = translator
+
+
+def tr_show_more_entries(n: int) -> str:
+    """Hidden-experience label. One row uses the singular key."""
+    if int(n) == 1:
+        return tr("profile.show_more_entry")
+    return tr("profile.show_more_entries", n=int(n))
+
+TRANSLATIONS["de"].update({
+    "calendar.connect_first": "Bitte zuerst einen Kalender in den Einstellungen verbinden.",
+    "calendar.proposal_input": "Einladung oder gewünschte Termine mit Datum und Uhrzeit:",
+    "calendar.choose_slot": "Freien Termin auswählen:",
+    "calendar.no_slots": "Keine passenden freien Termine gefunden. Datum, Uhrzeit und Verfügbarkeit prüfen.",
+    "calendar.write_after_approval": "Der Termin wird erst nach Freigabe im verbundenen Kalender angelegt.",
+    "calendar.operation_failed": "Kalender konnte nicht geprüft oder aktualisiert werden. Verbindung prüfen und erneut versuchen.",
+    "calendar.write_disabled": "Kalenderschreiben ist deaktiviert. In den Einstellungen freigeben.",
+    "calendar.created": "Termin im verbundenen Kalender angelegt.",
+    "lifecycle.no_reply_due": "Auf diese Nachricht ist keine Antwort nötig, zum Beispiel bei einer Eingangsbestätigung.",
+    "lifecycle.attach_files": "Bitte diese Dateien beim Versand selbst anhängen",
+})
+TRANSLATIONS["en"].update({
+    "calendar.connect_first": "Connect a calendar in Settings first.",
+    "calendar.proposal_input": "Invitation or proposed dates including date and time:",
+    "calendar.choose_slot": "Choose an available time:",
+    "calendar.no_slots": "No suitable available times found. Check dates, times and availability.",
+    "calendar.write_after_approval": "The event is created in your connected calendar only after approval.",
+    "calendar.operation_failed": "The calendar could not be checked or updated. Check the connection and retry.",
+    "calendar.write_disabled": "Calendar writing is disabled. Enable it in Settings.",
+    "calendar.created": "Event created in the connected calendar.",
+    "lifecycle.no_reply_due": "This message needs no reply, for example an acknowledgement of receipt.",
+    "lifecycle.attach_files": "Please attach these files yourself when sending",
+})
+
+TRANSLATIONS["de"]["integrations.connection_failed"] = "Verbindung fehlgeschlagen. Bitte Serveradresse, Zugangsdaten, Berechtigungen und Netzwerk prüfen."
+TRANSLATIONS["en"]["integrations.connection_failed"] = "Connection failed. Check the server address, credentials, permissions and network."
+
+
+TRANSLATIONS["de"].update({
+    "search.subtitle": "Passende Jobs anhand deines Lebenslaufs finden. Einen Wunschberuf kannst du optional angeben.",
+    "search.roles_skills": "Was möchtest du finden?",
+    "search.roles_optional": "Wunschberuf (optional)",
+    "search.terms_placeholder": "Optional – mehrere Begriffe mit Komma trennen",
+    "search.advanced": "Weitere Filter (optional)",
+})
+TRANSLATIONS["en"].update({
+    "search.subtitle": "Find suitable jobs based on your CV. A preferred job title is optional.",
+    "search.roles_skills": "What would you like to find?",
+    "search.roles_optional": "Preferred role (optional)",
+    "search.terms_placeholder": "Optional – separate multiple terms with commas",
+    "search.advanced": "More filters (optional)",
+})
+
+TRANSLATIONS["de"].update({
+    "integrations.gmail_app_password": "Google hat die Anmeldung abgelehnt. Für diese IMAP-Verbindung brauchst du ein Google-App-Passwort (16 Zeichen), nicht dein normales Google-Passwort. Aktiviere die Bestätigung in zwei Schritten und erstelle ein App-Passwort in deinem Google-Konto.",
+    "integrations.imap_auth_failed": "Das Postfach hat die Anmeldung abgelehnt. Prüfe die E-Mail-Adresse und das App-/E-Mail-Programm-Passwort. Bei WEB.DE muss IMAP aktiviert sein; T-Online benötigt ein separates Passwort für E-Mail-Programme.",
+    "integrations.imap_timeout": "Der Mailserver antwortet nicht rechtzeitig. Prüfe die Internetverbindung und versuche es erneut.",
+    "integrations.imap_network_failed": "Der Mailserver ist nicht erreichbar. Prüfe Internetverbindung, Firewall und Serveradresse.",
+    "integrations.imap_tls_failed": "Die sichere Verbindung zum Mailserver ist fehlgeschlagen. Prüfe Systemdatum und Zertifikate.",
+    "integrations.imap_incomplete": "E-Mail-Adresse oder Zugangsdaten fehlen. Fülle die Anmeldung vollständig aus.",
+    "integrations.outlook_reconnect": "Die Outlook-Anmeldung ist abgelaufen. Verbinde dein Postfach erneut.",
+})
+TRANSLATIONS["en"].update({
+    "integrations.gmail_app_password": "Google rejected sign-in. IMAP requires a 16-character Google app password, rather than your regular password. Enable two-step verification and create an app password in your Google account.",
+    "integrations.imap_auth_failed": "Sign-in was rejected. Check your email address and app password. WEB.DE requires IMAP to be enabled; T-Online requires a separate email-program password.",
+    "integrations.imap_timeout": "The mail server timed out. Check your internet connection and try again.",
+    "integrations.imap_network_failed": "The mail server is unreachable. Check your connection, firewall and server address.",
+    "integrations.imap_tls_failed": "The secure connection failed. Check the system date and certificates.",
+    "integrations.imap_incomplete": "Your email address or credentials are missing. Complete the sign-in fields.",
+    "integrations.outlook_reconnect": "Your Outlook sign-in expired. Reconnect your mailbox.",
+})
+
+TRANSLATIONS["de"]["search.active_filters"] = " · {count} aktiv"
+TRANSLATIONS["en"]["search.active_filters"] = " · {count} active"
+
+TRANSLATIONS["de"].update({
+    "updates.native_ready": "Neue Versionen werden automatisch geprüft. Ein Update ersetzt das Programmpaket; deine Daten bleiben im Benutzerordner.",
+    "updates.native_available": "Eine neue Version ist verfügbar. Nach geprüftem Download wird die App aktualisiert und neu gestartet.",
+    "updates.native_download": "Update herunterladen",
+})
+TRANSLATIONS["en"].update({
+    "updates.native_ready": "New versions are checked automatically. Replace the application package to update; your data stays in your user folder.",
+    "updates.native_available": "A new version is available. The verified download will update and restart the app.",
+    "updates.native_download": "Download update",
+})
+
+TRANSLATIONS['de'].update({'setup.model.title': '1 · Lokale KI',
+ 'setup.model.body': 'Die lokale KI liest deinen Lebenslauf und hilft beim Schreiben. Lade das '
+                     'Modell hier herunter. Du kannst die Einrichtung auch ohne KI fortsetzen.',
+ 'setup.accounts.title': '4 · E-Mail und Kalender',
+ 'setup.accounts.body': 'Verbinde dein Postfach zum lokalen Sortieren und deinen Kalender für '
+                        'freie Termine. Gmail verwendet ein App-Passwort. Wenn dein Konto das '
+                        'nicht erlaubt, kannst du später EML/MBOX-Dateien importieren. Alle '
+                        'Verbindungen sind optional.',
+ 'setup.accounts.mail': 'Postfach verbinden · Gmail, Outlook und andere',
+ 'setup.accounts.calendar': 'Kalender verbinden oder importieren',
+ 'setup.accounts.status': 'Postfach: {mail}\nKalender: {calendar}',
+ 'setup.accounts.checking': 'Verbindung wird geprüft … Du kannst den Helfer jederzeit schließen.',
+ 'setup.browser.title': '5 · Browser-Komponente',
+ 'setup.browser.body': 'Einige Stellenquellen brauchen die Browser-Komponente. Prüfe sie hier und '
+                       'installiere sie bei Bedarf. Du kannst diesen Schritt überspringen.',
+ 'setup.browser.unchecked': 'Noch nicht geprüft',
+ 'setup.browser.check': 'Browser prüfen',
+ 'setup.browser.install': 'Browser-Komponente installieren',
+ 'setup.browser.busy': 'Browser-Komponente wird bearbeitet …',
+ 'setup.finish': 'Einrichtung abschließen',
+ 'setup.ready': 'bereit',
+ 'setup.pending': 'noch offen',
+ 'setup.summary': 'Lokale KI: {model}\n'
+                  'Lebenslauf: {cv}\n'
+                  'Suchort: {location}\n'
+                  'Postfach: {mail}\n'
+                  'Kalender: {calendar}\n'
+                  'Browser: {browser}\n'
+                  '\n'
+                  'Offene Schritte kannst du später über Einstellungen → Einrichtung fortsetzen '
+                  'erledigen.',
+ 'wizard.step_cv_title': '2 · Lebenslauf und Profil',
+ 'wizard.step_prefs_title': '3 · Stellensuche',
+ 'wizard.step_ready_title': '6 · Prüfen und abschließen'})
+
+TRANSLATIONS['en'].update({'setup.model.title': '1 · Local AI',
+ 'setup.model.body': 'Local AI reads your CV and helps with writing. Download the model here. You '
+                     'can continue setup without AI.',
+ 'setup.accounts.title': '4 · Mail and calendar',
+ 'setup.accounts.body': 'Connect your mailbox for local sorting and your calendar for '
+                        'availability. Gmail uses an app password. If your account does not allow '
+                        'this, you can import EML/MBOX files later. All connections are optional.',
+ 'setup.accounts.mail': 'Connect mailbox · Gmail, Outlook and others',
+ 'setup.accounts.calendar': 'Connect or import calendar',
+ 'setup.accounts.status': 'Mailbox: {mail}\nCalendar: {calendar}',
+ 'setup.accounts.checking': 'Checking connection … You can close setup at any time.',
+ 'setup.browser.title': '5 · Browser component',
+ 'setup.browser.body': 'Some job sources need the browser component. Check it here and install if '
+                       'needed. You can skip this step.',
+ 'setup.browser.unchecked': 'Not checked yet',
+ 'setup.browser.check': 'Check browser',
+ 'setup.browser.install': 'Install browser component',
+ 'setup.browser.busy': 'Working on browser component …',
+ 'setup.finish': 'Finish setup',
+ 'setup.ready': 'ready',
+ 'setup.pending': 'pending',
+ 'setup.summary': 'Local AI: {model}\n'
+                  'CV: {cv}\n'
+                  'Search location: {location}\n'
+                  'Mailbox: {mail}\n'
+                  'Calendar: {calendar}\n'
+                  'Browser: {browser}\n'
+                  '\n'
+                  'Complete pending steps later under Settings → Continue setup.',
+ 'wizard.step_cv_title': '2 · CV and profile',
+ 'wizard.step_prefs_title': '3 · Job search',
+ 'wizard.step_ready_title': '6 · Review and finish'})
+
+TRANSLATIONS['de'].update({'setup.back': 'Zurück',
+ 'setup.next': 'Weiter',
+ 'setup.model.card': 'Lokale KI herunterladen',
+ 'settings.guenther': 'Lokale KI',
+ 'settings.guenther_model.sole': 'Lokale KI (separater Download)',
+ 'settings.guenther_writer_unavailable': 'Lokale KI fehlt. Lade das Modell oben im '
+                                         'Download-Bereich herunter.',
+ 'updates.legacy': 'In dieser Installation steht der Modell-Download nicht zur Verfügung. '
+                   'Installiere das aktuelle Karrierekrake-Paket für dein Betriebssystem manuell.'})
+
+TRANSLATIONS['en'].update({'setup.back': 'Back',
+ 'setup.next': 'Next',
+ 'setup.model.card': 'Download local AI',
+ 'settings.guenther': 'Local AI',
+ 'settings.guenther_model.sole': 'Local AI (separate download)',
+ 'settings.guenther_writer_unavailable': 'Local AI is missing. Download the model in the download '
+                                         'section above.',
+ 'updates.legacy': 'Model download is unavailable in this installation. Install the current '
+                   'Karrierekrake package for your operating system.'})
+
+TRANSLATIONS['de'].update({
+    'setup.model.body': 'Karrierekrake prüft kurz dein Gerät und empfiehlt eine passende lokale KI. Mit einem Klick wird sie heruntergeladen und getestet. Deine Daten bleiben auf diesem Gerät.',
+    'setup.model.specs': '{ram} GB RAM · {free} GB frei · {cores} CPU-Kerne',
+    'setup.model.recommended': 'Empfohlen: {name}\nDownload: {size} GB. Die Empfehlung berücksichtigt RAM, CPU und freien Speicher.',
+    'setup.model.download': 'Empfohlenes Modell herunterladen',
+    'setup.model.recheck': 'Gerät erneut prüfen',
+    'setup.model.retry': 'Erneut versuchen',
+    'setup.model.optional': 'Nach dem Download prüfen wir, ob das Modell auf deinem Gerät geladen werden kann. Du kannst die KI auch später einrichten.',
+    'setup.model.insufficient': 'Aktuell ist zu wenig RAM oder Speicherplatz frei. Schließe andere Programme oder schaffe Platz und prüfe erneut. Du kannst die Einrichtung ohne KI fortsetzen.',
+    'setup.model.specs_failed': 'Das Gerät konnte nicht geprüft werden. Öffne die Einrichtung später erneut.',
+    'setup.model.downloading': 'Modell wird heruntergeladen …',
+    'setup.model.verifying': 'Download wird geprüft …',
+    'setup.model.testing': 'Modell wird auf deinem Gerät getestet …',
+    'setup.model.ready': '{name} ist geprüft und einsatzbereit. Du kannst mit der Einrichtung fortfahren.',
+    'setup.model.failed': 'Der Download konnte nicht abgeschlossen werden. Prüfe Internetverbindung und Speicherplatz und versuche es erneut.',
+    'setup.model.probe_failed': 'Das Modell konnte auf diesem Gerät nicht geladen werden. Es wurde nicht aktiviert. Du kannst erneut versuchen oder die Einrichtung ohne KI fortsetzen.',
+    'setup.model.probe_busy': 'Die lokale KI wird gerade an anderer Stelle in Karrierekrake benutzt, zum Beispiel beim Einlesen eines Lebenslaufs. Warte einen Moment und versuche es dann erneut.',
+    'setup.model.cancelling': 'Abbruch wird ausgeführt …',
+    'setup.model.cancelled': 'Download abgebrochen. Du kannst ihn später fortsetzen.',
+})
+TRANSLATIONS['en'].update({
+    'setup.model.body': 'Karrierekrake briefly checks your device and recommends suitable local AI. One click downloads and tests it. Your data stays on this device.',
+    'setup.model.specs': '{ram} GB RAM · {free} GB available · {cores} CPU cores',
+    'setup.model.recommended': 'Recommended: {name}\nDownload: {size} GB. The recommendation considers RAM, CPU and free disk space.',
+    'setup.model.download': 'Download recommended model',
+    'setup.model.recheck': 'Check device again',
+    'setup.model.retry': 'Try again',
+    'setup.model.optional': 'After downloading, we test whether the model loads on your device. You can also set up AI later.',
+    'setup.model.insufficient': 'Not enough RAM or disk space is currently available. Close other programs or free some space, then check again. You can continue setup without AI.',
+    'setup.model.specs_failed': 'The device check failed. Please reopen setup later.',
+    'setup.model.downloading': 'Downloading model …',
+    'setup.model.verifying': 'Verifying download …',
+    'setup.model.testing': 'Testing model on your device …',
+    'setup.model.ready': '{name} is verified and ready. You can continue setup.',
+    'setup.model.failed': 'Download could not finish. Check your connection and disk space, then try again.',
+    'setup.model.probe_failed': 'The model could not load on this device and was not activated. Retry or continue setup without AI.',
+    'setup.model.probe_busy': 'The local AI is in use elsewhere in Karrierekrake, for example while reading a CV. Wait a moment and try again.',
+    'setup.model.cancelling': 'Cancelling …',
+    'setup.model.cancelled': 'Download cancelled. You can resume it later.',
+})
+TRANSLATIONS['de']['updates.legacy'] = 'Programmupdates musst du in dieser Installation manuell installieren. Die lokale KI kannst du im Einrichtungsassistenten oder im Bereich „Lokale KI“ herunterladen.'
+TRANSLATIONS['en']['updates.legacy'] = 'App updates are unavailable in this installation. Download local AI through setup or the Local AI section.'
+
+TRANSLATIONS['de'].update({
+    'setup.model.retrying': 'Die Verbindung wurde unterbrochen. Der Download wird automatisch fortgesetzt …',
+    'setup.model.failed': 'Der Modell-Download ist fehlgeschlagen. Fehlercode: download_failed. Bereits geladene Daten bleiben für einen erneuten Versuch erhalten.',
+    'setup.model.error.timeout': 'Der Modellserver hat nicht rechtzeitig geantwortet (connection_timeout). Versuche es erneut; der Download wird fortgesetzt.',
+    'setup.model.error.interrupted': 'Die Verbindung zum Modellserver wurde unterbrochen (connection_interrupted). Versuche es erneut; der Download wird fortgesetzt.',
+    'setup.model.error.dns': 'Der Modellserver konnte nicht gefunden werden (dns_failed). Prüfe Verbindung, DNS oder VPN und versuche es erneut.',
+    'setup.model.error.tls': 'Die sichere Verbindung zum Modellserver konnte nicht geprüft werden (tls_failed). Prüfe Datum/Uhrzeit und HTTPS-Filter von Antivirus oder Proxy.',
+    'setup.model.error.disk': 'Auf dem Laufwerk für die Modelle ist zu wenig Speicherplatz frei (insufficient_disk). Schaffe Platz und versuche es erneut.',
+    'setup.model.error.checksum': 'Die heruntergeladene Datei ist beschädigt (checksum_mismatch). Sie wurde verworfen. Starte den Download erneut.',
+    'setup.model.error.response': 'Der Modellserver hat eine ungültige Download-Antwort geliefert (invalid_download_response). Versuche es später erneut.',
+    'setup.model.error.http': 'Der Modellserver hat den Download mit HTTP {status} abgelehnt. Versuche es später erneut; bei HTTP 401/403 prüfe auch Proxy oder Netzwerkfilter.',
+})
+TRANSLATIONS['en'].update({
+    'setup.model.retrying': 'The connection was interrupted. Resuming the download automatically …',
+    'setup.model.failed': 'Model download failed. Error code: download_failed. Downloaded data is retained for another attempt.',
+    'setup.model.error.timeout': 'The model server did not respond in time (connection_timeout). Retry to resume the download.',
+    'setup.model.error.interrupted': 'The connection to the model server was interrupted (connection_interrupted). Retry to resume the download.',
+    'setup.model.error.dns': 'The model server could not be found (dns_failed). Check your connection, DNS or VPN, then retry.',
+    'setup.model.error.tls': 'The secure connection to the model server could not be verified (tls_failed). Check date/time and antivirus or proxy HTTPS filtering.',
+    'setup.model.error.disk': 'The model drive has insufficient disk space (insufficient_disk). Free some space and retry.',
+    'setup.model.error.checksum': 'The downloaded file is corrupt (checksum_mismatch) and was discarded. Start the download again.',
+    'setup.model.error.response': 'The model server returned an invalid download response (invalid_download_response). Retry later.',
+    'setup.model.error.http': 'The model server rejected the download with HTTP {status}. Retry later; for HTTP 401/403 also check proxy or network filters.',
+})
+TRANSLATIONS['de'].update({
+    'logs.event.model_failed': 'Der KI-Modell-Download oder Ladetest ist fehlgeschlagen. Die genaue Ursache steht unten.',
+    'logs.event.model_installed': 'Das KI-Modell wurde heruntergeladen und die Prüfsumme bestätigt.',
+})
+TRANSLATIONS['en'].update({
+    'logs.event.model_failed': 'AI model download or load test failed. See the exact cause below.',
+    'logs.event.model_installed': 'AI model download completed and its checksum was verified.',
+})
+
+
+# PR144: shared by the setup wizard and the device report (guenther.device_check).
+TRANSLATIONS['de'].update({'setup.model.warning.low_free_ram':
+    'Gerade ist wenig Arbeitsspeicher frei. Schließe andere Programme, damit die KI flüssiger läuft.'})
+TRANSLATIONS['en'].update({'setup.model.warning.low_free_ram':
+    'Little memory is free right now. Close other programs so the AI runs more smoothly.'})
+
+# Model setup (PR144 designer pass): plain-language errors, code shown as a
+# secondary line, manual model choice with locked unfit models, no-fit state.
+# No technical jargon ("RAM", "Peak", DNS, HTTP) in visible sentences.
+TRANSLATIONS['de'].update({
+    'setup.model.specs': 'Dein Gerät: {ram} GB Arbeitsspeicher ({free} GB davon frei) · {disk} GB Speicherplatz frei · {cores} Prozessorkerne',
+    'setup.model.recommended': 'Empfohlen: {name} ({size} GB Download)',
+    'setup.model.preselected': 'Vorausgewählt: {name} ({size} GB Download)',
+    'setup.model.choice_label': 'KI-Modell',
+    'setup.model.choice_a11y': 'KI-Modell auswählen',
+    'setup.model.item': '{name} – {size} GB',
+    'setup.model.item_recommended': '{name} – {size} GB – empfohlen',
+    'setup.model.item_unverified': '{name} – {size} GB – auf diesem Gerät noch nicht gemessen',
+    'setup.model.item_locked_suffix': ' · gesperrt: {reason}',
+    'setup.model.block.ram_too_small': 'zu wenig Arbeitsspeicher',
+    'setup.model.block.low_free_ram': 'zu wenig freier Arbeitsspeicher',
+    'setup.model.block.disk_too_small': 'zu wenig freier Speicherplatz',
+    'setup.model.block.not_released': 'für dieses Gerät nicht freigegeben',
+    'setup.model.blocked_note': 'Passt nicht zu diesem Gerät: {reason}. Wähle ein anderes Modell oder prüfe das Gerät erneut.',
+    'setup.model.blocked_note_low_free_ram': 'Gerade ist zu wenig Arbeitsspeicher frei. Schließe andere Programme und prüfe das Gerät dann erneut. Oder wähle ein anderes Modell.',
+    'setup.model.free_ram_hint': 'Die ausgegrauten, größeren Modelle sind gesperrt, weil gerade zu wenig Arbeitsspeicher frei ist. Schließe andere Programme und prüfe das Gerät dann erneut, wenn du eines davon nutzen willst.',
+    'setup.model.blocked_button': 'Passt nicht zu diesem Gerät',
+    'setup.model.blocked_a11y': 'Herunterladen nicht möglich. Passt nicht zu diesem Gerät: {reason}',
+    'setup.model.unverified_note': 'Für dieses Gerät noch nicht gemessen. Die KI kann langsam sein.',
+    'setup.model.download_selected': 'Ausgewähltes Modell herunterladen',
+    'setup.model.download_unavailable': 'Herunterladen nicht möglich: Gerät nicht geprüft',
+    'setup.model.reverify': 'Modell erneut prüfen',
+    # Settings context: no wizard wording ("mit der Einrichtung fortfahren").
+    'setup.model.ready_settings': 'Aktives Modell: {name}. Es ist geprüft und einsatzbereit.',
+    'setup.model.can_switch': 'Du kannst ein anderes Modell auswählen.',
+    'setup.model.recheck': 'Gerät erneut prüfen',
+    'setup.model.recheck_same': 'Erneut geprüft: Das Ergebnis ist unverändert.',
+    'setup.model.retry': 'Erneut versuchen',
+    'setup.model.retry_a11y': 'Erneut versuchen – Download fehlgeschlagen',
+    'setup.model.cancel_a11y': 'Download abbrechen',
+    'setup.model.progress_a11y': 'Fortschritt des Modell-Downloads',
+    'setup.model.no_fit': 'Kein Modell passt zu diesem Gerät.',
+    'setup.model.no_fit.ram_too_small': 'Dein Gerät hat zu wenig Arbeitsspeicher für die lokale KI. Schließe andere Programme und prüfe erneut.',
+    'setup.model.no_fit.disk_too_small': 'Auf deinem Gerät ist zu wenig Speicherplatz frei. Schaffe Platz und prüfe erneut.',
+    'setup.model.continue_without_ai_wizard': 'Du kannst die Einrichtung ohne KI mit „Weiter“ fortsetzen und die KI später in den Einstellungen einrichten.',
+    'setup.model.continue_without_ai': 'Du kannst Karrierekrake ohne lokale KI weiter nutzen und sie später hier einrichten.',
+    'setup.model.specs_failed': 'Das Gerät konnte gerade nicht geprüft werden. Prüfe es erneut.',
+    'setup.model.warning.slow_cpu': 'Dein Prozessor ist eher langsam. Die KI kann lange für Antworten brauchen.',
+    'setup.model.busy_hint_wizard': '„Weiter“ ist während des Downloads gesperrt. Mit „Download abbrechen“ kannst du ohne KI fortfahren; der Download lässt sich später fortsetzen.',
+    'setup.model.busy_hint': 'Mit „Download abbrechen“ stoppst du den Download; er lässt sich später fortsetzen.',
+    'setup.model.cancel_download': 'Download abbrechen',
+    'setup.model.override': 'Trotzdem installieren …',
+    'setup.model.override_title': 'Modell trotzdem installieren?',
+    'setup.model.override_confirm': 'Trotzdem installieren',
+    'setup.model.override_cancel': 'Nicht installieren',
+    'setup.model.override_body': '{name} passt laut Gerätecheck nicht zu diesem Gerät: {reason}. Die KI kann sehr langsam sein oder gar nicht starten. Trotzdem herunterladen und installieren?',
+    'setup.model.error_code': 'Fehlercode: {code}',
+    'setup.model.choose_placeholder': 'Modell auswählen …',
+    'setup.model.choose_hint': 'Wähle das Modell aus, um es herunterzuladen.',
+    'setup.model.item_installed_suffix': ' – installiert',
+    'setup.model.choose_first': 'Herunterladen nicht möglich: Erst ein Modell auswählen',
+    'setup.model.choose_first_message': 'Bitte wähle zuerst ein Modell aus der Liste.',
+    'setup.model.failed': 'Der Download konnte nicht abgeschlossen werden. Prüfe Internetverbindung und Speicherplatz und versuche es erneut.',
+    'setup.model.error.timeout': 'Der Download-Server antwortet gerade nicht. Prüfe deine Internetverbindung und versuche es erneut.',
+    'setup.model.error.interrupted': 'Die Verbindung ist abgebrochen. Prüfe deine Internetverbindung und versuche es erneut.',
+    'setup.model.error.size': 'Die heruntergeladene Datei hat nicht die erwartete Größe und wurde verworfen. Versuche es später erneut. In einem Firmen- oder Schulnetz hilft oft ein anderes Netz.',
+    'setup.model.error.dns': 'Der Download-Server ist nicht erreichbar. Prüfe, ob du mit dem Internet verbunden bist. Nutzt du ein VPN oder ein Firmennetz, versuche es ohne oder frage deine IT.',
+    'setup.model.error.tls': 'Die sichere Verbindung zum Download-Server kam nicht zustande. Prüfe deine Internetverbindung oder versuche es später erneut. In einem Firmennetz frage deine IT.',
+    'setup.model.error.disk': 'Auf deinem Computer ist nicht genug Speicherplatz frei. Lösche nicht benötigte Dateien und versuche es erneut.',
+    'setup.model.error.permission': 'Dein Computer hat Karrierekrake den Zugriff verweigert, deshalb konnte das Modell nicht gespeichert werden. Starte Karrierekrake neu und versuche es erneut. Wenn es wieder passiert, frag jemanden, der deinen Computer betreut.',
+    'setup.model.error.checksum': 'Die heruntergeladene Datei war beschädigt und wurde gelöscht. Lade sie bitte erneut herunter.',
+    'setup.model.error.response': 'Der Download-Server hat unerwartet geantwortet. Versuche es in ein paar Minuten erneut.',
+    'setup.model.error.http': 'Der Download-Server hat den Download abgelehnt. Versuche es später erneut. In Firmen- oder Schulnetzen kann ein Netzwerkfilter die Ursache sein.',
+    'setup.model.error.http_416': 'Der Download konnte nicht fortgesetzt werden. Versuche es erneut. Falls nötig, beginnt der Download dabei von vorne. Klappt es dann immer noch nicht, versuche es später noch einmal.',
+    'setup.model.error.activation': 'Das Modell wurde heruntergeladen, konnte aber nicht eingeschaltet werden. Versuche es erneut.',
+})
+TRANSLATIONS['en'].update({
+    'setup.model.specs': 'Your device: {ram} GB memory ({free} GB free) · {disk} GB disk space free · {cores} processor cores',
+    'setup.model.recommended': 'Recommended: {name} ({size} GB download)',
+    'setup.model.preselected': 'Preselected: {name} ({size} GB download)',
+    'setup.model.choice_label': 'AI model',
+    'setup.model.choice_a11y': 'Choose AI model',
+    'setup.model.item': '{name} – {size} GB',
+    'setup.model.item_recommended': '{name} – {size} GB – recommended',
+    'setup.model.item_unverified': '{name} – {size} GB – not yet measured on this device',
+    'setup.model.item_locked_suffix': ' · locked: {reason}',
+    'setup.model.block.ram_too_small': 'not enough memory',
+    'setup.model.block.low_free_ram': 'not enough free memory',
+    'setup.model.block.disk_too_small': 'not enough free disk space',
+    'setup.model.block.not_released': 'not released for this device',
+    'setup.model.blocked_note': "Doesn't fit this device: {reason}. Choose another model or check the device again.",
+    'setup.model.blocked_note_low_free_ram': 'Not enough memory is free right now. Close other programs and then check the device again. Or choose another model.',
+    'setup.model.free_ram_hint': 'The greyed-out larger models are locked because not enough memory is free right now. Close other programs and then check the device again if you want to use one of them.',
+    'setup.model.blocked_button': "Doesn't fit this device",
+    'setup.model.blocked_a11y': "Download not possible. Doesn't fit this device: {reason}",
+    'setup.model.unverified_note': 'Not yet measured for this device. The AI may be slow.',
+    'setup.model.download_selected': 'Download selected model',
+    'setup.model.download_unavailable': 'Download not possible: device not checked',
+    'setup.model.reverify': 'Check model again',
+    # Settings context: no wizard wording ("continue setup").
+    'setup.model.ready_settings': 'Active model: {name}. It is verified and ready.',
+    'setup.model.can_switch': 'You can choose a different model.',
+    'setup.model.recheck': 'Check device again',
+    'setup.model.recheck_same': 'Checked again: the result is unchanged.',
+    'setup.model.retry': 'Try again',
+    'setup.model.retry_a11y': 'Try again – download failed',
+    'setup.model.cancel_a11y': 'Cancel download',
+    'setup.model.progress_a11y': 'Model download progress',
+    'setup.model.no_fit': 'No model fits this device.',
+    'setup.model.no_fit.ram_too_small': 'Your device does not have enough memory for local AI. Close other programs and check again.',
+    'setup.model.no_fit.disk_too_small': 'Not enough disk space is free on your device. Free some space and check again.',
+    'setup.model.continue_without_ai_wizard': 'You can continue setup without AI using "Next" and set up AI later in Settings.',
+    'setup.model.continue_without_ai': 'You can keep using Karrierekrake without local AI and set it up here later.',
+    'setup.model.specs_failed': 'The device could not be checked right now. Check it again.',
+    'setup.model.warning.slow_cpu': 'Your processor is rather slow. The AI may take a long time to answer.',
+    'setup.model.busy_hint_wizard': '"Next" is locked while downloading. Use "Cancel download" to continue without AI; the download can be resumed later.',
+    'setup.model.busy_hint': 'Use "Cancel download" to stop the download; it can be resumed later.',
+    'setup.model.cancel_download': 'Cancel download',
+    'setup.model.override': 'Install anyway …',
+    'setup.model.override_title': 'Install model anyway?',
+    'setup.model.override_confirm': 'Install anyway',
+    'setup.model.override_cancel': "Don't install",
+    'setup.model.override_body': "According to the device check, {name} doesn't fit this device: {reason}. The AI may be very slow or not start at all. Download and install anyway?",
+    'setup.model.error_code': 'Error code: {code}',
+    'setup.model.choose_placeholder': 'Choose a model …',
+    'setup.model.choose_hint': 'Choose the model to download it.',
+    'setup.model.item_installed_suffix': ' – installed',
+    'setup.model.choose_first': 'Download not possible: choose a model first',
+    'setup.model.choose_first_message': 'Please choose a model from the list first.',
+    'setup.model.failed': 'The download could not finish. Check your internet connection and disk space, then try again.',
+    'setup.model.error.timeout': 'The download server is not responding right now. Check your internet connection and try again.',
+    'setup.model.error.interrupted': 'The connection dropped. Check your internet connection and try again.',
+    'setup.model.error.size': 'The downloaded file did not have the expected size and was discarded. Try again later. On a company or school network, another network often helps.',
+    'setup.model.error.dns': 'The download server cannot be reached. Check that you are connected to the internet. If you use a VPN or company network, try without it or ask your IT.',
+    'setup.model.error.tls': 'The secure connection to the download server could not be established. Check your internet connection or try again later. On a company network, ask your IT.',
+    'setup.model.error.disk': 'Not enough disk space is free on your computer. Delete files you do not need and try again.',
+    'setup.model.error.permission': 'Your computer denied Karrierekrake access, so the model could not be saved. Restart Karrierekrake and try again. If it happens again, ask the person who looks after your computer.',
+    'setup.model.error.checksum': 'The downloaded file was damaged and has been deleted. Please download it again.',
+    'setup.model.error.response': 'The download server answered unexpectedly. Try again in a few minutes.',
+    'setup.model.error.http': 'The download server refused the download. Try again later. In company or school networks a network filter may be the cause.',
+    'setup.model.error.http_416': 'The download could not be continued. Try again. If needed, the download starts over from the beginning. If it still does not work, try again later.',
+    'setup.model.error.activation': 'The model was downloaded but could not be switched on. Try again.',
+})

@@ -1,0 +1,1826 @@
+"""Settings page — V2 side-nav IA (demo Einstellungen) with scrolling sections."""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from pathlib import Path
+
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QDialog,
+    QFileDialog,
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QListWidgetItem,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QStackedWidget,
+    QToolButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from core.database import Database
+from desktop.design_system.a11y import set_accessible_name
+from desktop.design_system.polish import (
+    apply_button_icon,
+    footer_actions_layout,
+    polish_interactive,
+)
+from desktop.design_system.v2_chrome import PageHeader
+from desktop.i18n import escape_mnemonic, tr
+from desktop.services import ConfigService
+from desktop.services.browser_install import playwright_available
+from desktop.services.schedule_service import ScheduleService
+from desktop.widgets.about_dialog import AboutDialog
+from desktop.widgets.confirm_dialog import build_confirm_box, confirm_action
+from desktop.widgets.scroll_page import wrap_scrollable
+from desktop.widgets.wheel_guard import IntentionalWheelSpinBox, apply_wheel_guard_to_spinboxes
+from desktop.workers import (
+    FunctionWorker,
+    BrowserCheckWorker,
+    BrowserRepairWorker,
+    connect_queued,
+    start_worker,
+)
+
+
+SOURCES = [
+    ("bundesagentur", "Bundesagentur"),
+    ("indeed", "Indeed"),
+    ("linkedin", "LinkedIn"),
+    ("stepstone", "StepStone"),
+    ("xing", "XING"),
+    ("company_sites", "company_sites"),
+]
+
+# Demo-aligned inner nav keys (order = stack index).
+_SETTINGS_NAV_KEYS = (
+    "settings.nav.general",
+    "settings.nav.automation",
+    "settings.nav.communication",
+    "settings.nav.integrations",
+    "settings.nav.privacy",
+    "settings.nav.advanced",
+    "nav.search",
+)
+
+
+def _scroll_form() -> tuple[QWidget, QVBoxLayout]:
+    inner = QWidget()
+    layout = QVBoxLayout(inner)
+    layout.setContentsMargins(16, 8, 24, 16)
+    layout.setSpacing(14)
+    page = QWidget()
+    outer = QVBoxLayout(page)
+    outer.setContentsMargins(0, 0, 0, 0)
+    outer.addWidget(wrap_scrollable(inner, min_content_width=520))
+    return page, layout
+
+
+def _collapsible_host(title_btn: QToolButton, body: QWidget) -> QWidget:
+    """Progressive-disclosure shell: checkable header toggles body visibility."""
+    host = QWidget()
+    lay = QVBoxLayout(host)
+    lay.setContentsMargins(0, 0, 0, 0)
+    lay.setSpacing(4)
+    title_btn.setCheckable(True)
+    title_btn.setChecked(False)
+    title_btn.setObjectName("SecondaryButton")
+    body.setVisible(False)
+    title_btn.toggled.connect(body.setVisible)
+    lay.addWidget(title_btn)
+    lay.addWidget(body)
+    return host
+
+
+from desktop.account_connections import AccountConnectionsMixin
+
+
+class SettingsPage(AccountConnectionsMixin, QWidget):
+    appearance_changed = Signal()
+    settings_saved = Signal()
+
+    def __init__(self, config_service: ConfigService, parent=None) -> None:
+        super().__init__(parent)
+        self.config_service = config_service
+        self._install_thread = None
+        self._install_worker = None
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+        self.header = PageHeader(tr("nav.settings"))
+        root.addWidget(self.header)
+
+        body = QHBoxLayout()
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(0)
+
+        self.nav = QListWidget()
+        self.nav.setObjectName("SettingsNav")
+        self.nav.setFixedWidth(240)
+        self.nav.setSpacing(2)
+        set_accessible_name(self.nav, tr("nav.settings"))
+        self.stack = QStackedWidget()
+        # Back-compat: older tests/helpers may still look for `.tabs`
+        self.tabs = self.stack
+
+        for key in _SETTINGS_NAV_KEYS:
+            item = QListWidgetItem(tr(key))
+            item.setData(Qt.ItemDataRole.UserRole, key)
+            self.nav.addItem(item)
+
+        body.addWidget(self.nav)
+        body.addWidget(self.stack, stretch=1)
+        root.addLayout(body, stretch=1)
+
+        # --- 0 Allgemein ---
+        general_page, general_layout = _scroll_form()
+        self.section_general = QLabel()
+        self.section_general.setObjectName("PageTitle")
+        general_layout.addWidget(self.section_general)
+        self.lang_combo = QComboBox()
+        self.lang_combo.addItem("", "de")
+        self.lang_combo.addItem("", "en")
+        self.theme_combo = QComboBox()
+        self.theme_combo.addItem("", "system")
+        self.theme_combo.addItem("", "light")
+        self.theme_combo.addItem("", "dark")
+        self.start_windows = QCheckBox()
+        self.minimize_tray = QCheckBox()
+        self.general_form = QFormLayout()
+        self.lang_label = QLabel()
+        self.theme_label = QLabel()
+        self.general_form.addRow(self.lang_label, self.lang_combo)
+        self.general_form.addRow(self.theme_label, self.theme_combo)
+        self.high_contrast = QCheckBox()
+        self.general_form.addRow(self.high_contrast)
+        self.general_form.addRow(self.start_windows)
+        self.general_form.addRow(self.minimize_tray)
+        self.about_btn = QPushButton()
+        self.about_btn.setObjectName("SecondaryButton")
+        self.about_btn.clicked.connect(self.open_about)
+        self.general_form.addRow(self.about_btn)
+        general_box = QGroupBox()
+        self.general_box = general_box
+        self.appear_box = general_box  # back-compat attribute
+        general_box.setLayout(self.general_form)
+        general_layout.addWidget(general_box)
+        from desktop.widgets.update_panel import UpdatePanel
+        self.updates = UpdatePanel(self)
+        general_layout.addWidget(self.updates)
+        from desktop.widgets.commerce_panel import CommercePanel
+        self.commerce_panel = CommercePanel(self)
+        general_layout.addWidget(self.commerce_panel)
+        general_layout.addStretch(1)
+        self.stack.addWidget(general_page)
+
+        # --- 1 Automation (mode + schedule + safety limits) ---
+        auto_page, auto_layout = _scroll_form()
+        self.section_automation = QLabel()
+        self.section_automation.setObjectName("PageTitle")
+        auto_layout.addWidget(self.section_automation)
+
+        mode_box = QGroupBox()
+        self.mode_box = mode_box
+        mode_layout = QVBoxLayout(mode_box)
+        self.mode_group = QButtonGroup(self)
+        self.mode_search = QRadioButton()
+        self.mode_review = QRadioButton()
+        self.mode_auto = QRadioButton()
+        for i, btn in enumerate((self.mode_search, self.mode_review, self.mode_auto)):
+            self.mode_group.addButton(btn, i)
+            mode_layout.addWidget(btn)
+        self.dry_run = QCheckBox()
+        self.dry_run.clicked.connect(self._save_dry_run)
+        mode_layout.addWidget(self.dry_run)
+        auto_layout.addWidget(mode_box)
+
+        bg_box = QGroupBox()
+        self.bg_box = bg_box
+        bform = QFormLayout(bg_box)
+        self.run_auto = QCheckBox()
+        self.schedule_mode = QComboBox()
+        self.interval_hours = IntentionalWheelSpinBox()
+        self.interval_hours.setRange(1, 24)
+        self.custom_times = QLineEdit()
+        self.paused = QCheckBox()
+        self.lbl_schedule = QLabel()
+        self.lbl_interval = QLabel()
+        self.lbl_times = QLabel()
+        bform.addRow(self.run_auto)
+        bform.addRow(self.lbl_schedule, self.schedule_mode)
+        bform.addRow(self.lbl_interval, self.interval_hours)
+        bform.addRow(self.lbl_times, self.custom_times)
+        bform.addRow(self.paused)
+        auto_layout.addWidget(bg_box)
+
+        apply_box = QGroupBox()
+        self.apply_box = apply_box
+        aform = QFormLayout(apply_box)
+        self.min_match_apply = IntentionalWheelSpinBox()
+        self.min_match_apply.setRange(0, 100)
+        self.max_per_run = IntentionalWheelSpinBox()
+        self.max_per_run.setRange(1, 100)
+        self.max_per_day = IntentionalWheelSpinBox()
+        self.max_per_day.setRange(1, 200)
+        self.max_fail = IntentionalWheelSpinBox()
+        self.max_fail.setRange(1, 50)
+        self.delay = IntentionalWheelSpinBox()
+        self.delay.setRange(0, 600)
+        self.auto_cover = QCheckBox()
+        self.auto_submit = QCheckBox()
+        self.lbl_min_match_apply = QLabel()
+        self.lbl_max_per_run = QLabel()
+        self.lbl_max_per_day = QLabel()
+        self.lbl_max_fail = QLabel()
+        self.lbl_delay = QLabel()
+        aform.addRow(self.lbl_min_match_apply, self.min_match_apply)
+        aform.addRow(self.lbl_max_per_run, self.max_per_run)
+        aform.addRow(self.lbl_max_per_day, self.max_per_day)
+        aform.addRow(self.lbl_max_fail, self.max_fail)
+        aform.addRow(self.lbl_delay, self.delay)
+        aform.addRow(self.auto_cover)
+        self.cover_templates_btn = QPushButton()
+        self.cover_templates_btn.setObjectName("SecondaryButton")
+        self.cover_templates_btn.clicked.connect(self._open_cover_templates)
+        aform.addRow(self.cover_templates_btn)
+        aform.addRow(self.auto_submit)
+        self.safety_toggle = QToolButton()
+        self.safety_toggle.setCheckable(True)
+        auto_layout.addWidget(_collapsible_host(self.safety_toggle, apply_box))
+        auto_layout.addStretch(1)
+        self.stack.addWidget(auto_page)
+
+        # --- 2 Kommunikation & Termine ---
+        comm_page, comm_layout = _scroll_form()
+        self.section_communication = QLabel()
+        self.section_communication.setObjectName("PageTitle")
+        comm_layout.addWidget(self.section_communication)
+        life_box = QGroupBox()
+        self.life_box = life_box
+        lform = QFormLayout(life_box)
+        self.preferred_contact = QComboBox()
+        self.preferred_contact.addItem("E-Mail", "email")
+        self.preferred_contact.addItem("Telefon", "phone")
+        self.preferred_contact.addItem("Beides", "either")
+        self.phone_available = QCheckBox()
+        self.telephone_availability = QLineEdit()
+        self.working_hours = QLineEdit()
+        self.follow_up_days = IntentionalWheelSpinBox()
+        self.follow_up_days.setRange(1, 90)
+        self.ghosted_days = IntentionalWheelSpinBox()
+        self.ghosted_days.setRange(1, 180)
+        self.archive_after_days = IntentionalWheelSpinBox()
+        self.archive_after_days.setRange(0, 365)
+        self.email_draft_only = QCheckBox()
+        self.followup_enabled = QCheckBox()
+        self.followup_reminders_enabled = QCheckBox()
+        self.reply_popups = QCheckBox()
+        self.allow_employer_email_send = QCheckBox()
+        self.lbl_preferred_contact = QLabel()
+        self.lbl_tel_avail = QLabel()
+        self.lbl_working_hours = QLabel()
+        self.lbl_follow_up_days = QLabel()
+        self.lbl_ghosted_days = QLabel()
+        self.lbl_archive_after_days = QLabel()
+        lform.addRow(self.lbl_preferred_contact, self.preferred_contact)
+        lform.addRow(self.phone_available)
+        lform.addRow(self.lbl_tel_avail, self.telephone_availability)
+        lform.addRow(self.lbl_working_hours, self.working_hours)
+        lform.addRow(self.lbl_follow_up_days, self.follow_up_days)
+        lform.addRow(self.lbl_ghosted_days, self.ghosted_days)
+        lform.addRow(self.lbl_archive_after_days, self.archive_after_days)
+        lform.addRow(self.followup_enabled)
+        lform.addRow(self.followup_reminders_enabled)
+        lform.addRow(self.reply_popups)
+        lform.addRow(self.email_draft_only)
+        lform.addRow(self.allow_employer_email_send)
+        comm_layout.addWidget(life_box)
+        comm_layout.addStretch(1)
+        self.stack.addWidget(comm_page)
+
+        # --- 3 Integrationen (Mail / Kalender Providers + Günther) ---
+        integ_page, integ_layout = _scroll_form()
+        self.section_integrations = QLabel()
+        self.section_integrations.setObjectName("PageTitle")
+        integ_layout.addWidget(self.section_integrations)
+
+        oauth_box = QGroupBox()
+        self.oauth_box = oauth_box
+        oform = QVBoxLayout(oauth_box)
+
+        self.lbl_mail_provider = QLabel()
+        self.mail_provider = QComboBox()
+        for label, data in (
+            ("integrations.mail.none", "none"),
+            ("integrations.mail.other", "generic_imap"),
+            ("integrations.mail.google", "google_gmail"),
+        ):
+            self.mail_provider.addItem(label, data)
+        self.mail_provider.view().setRowHidden(self.mail_provider.findData("google_gmail"), True)
+        self.mail_status = QLabel()
+        self.mail_status.setWordWrap(True)
+        oform.addWidget(self.lbl_mail_provider)
+        oform.addWidget(self.mail_provider)
+        oform.addWidget(self.mail_status)
+        self.account_cancel_btn = QPushButton("Anmeldung abbrechen")
+        self.account_cancel_btn.hide()
+        self.account_cancel_btn.clicked.connect(self._cancel_account_task)
+        oform.addWidget(self.account_cancel_btn)
+        self.calendar_import_btn = QPushButton("Google / Samsung / Apple: Kalenderdatei importieren …")
+        self.calendar_import_btn.clicked.connect(self._import_calendar_snapshot)
+        self.lbl_calendar_provider = QLabel()
+        self.calendar_provider = QComboBox()
+        for label, data in (
+            ("integrations.calendar.other", "generic_caldav"),
+            ("free.calendar.ics", "local_ics"),
+            ("integrations.calendar.google", "google_calendar"),
+            ("integrations.calendar.none_explicit", "none"),
+        ):
+            self.calendar_provider.addItem(label, data)
+        self.calendar_provider.view().setRowHidden(self.calendar_provider.findData("google_calendar"), True)
+        self.calendar_status = QLabel()
+        self.calendar_status.setWordWrap(True)
+        oform.addWidget(self.lbl_calendar_provider)
+        oform.addWidget(self.calendar_provider)
+        oform.addWidget(self.calendar_status)
+        self.calendar_import_btn.hide()  # Available through the calendar connection menu.
+
+        self.lbl_calendar_mode = QLabel()
+        self.calendar_google_mode = QComboBox()
+        self.calendar_google_mode.addItem("", "A")
+        self.calendar_google_mode.addItem("", "B")
+        self.calendar_mode_rights = QLabel()
+        self.calendar_mode_rights.setWordWrap(True)
+        self.calendar_mode_rights.setObjectName("PageSubtitle")
+        self.calendar_google_mode.currentIndexChanged.connect(self._update_calendar_mode_rights)
+        oform.addWidget(self.lbl_calendar_mode)
+        oform.addWidget(self.calendar_google_mode)
+        oform.addWidget(self.calendar_mode_rights)
+        self.calendar_provider.currentIndexChanged.connect(self._update_calendar_mode_visibility)
+        self._update_calendar_mode_visibility()
+
+        from integrations.provider_setup_guides import PROVIDERS
+        self.setup_provider = QComboBox()
+        for key, details in PROVIDERS.items():
+            self.setup_provider.addItem(details[0], key)
+        self.setup_guide_button = QPushButton("Wie richte ich diesen Anbieter in Karrierekrake ein?")
+        self.setup_guide_button.clicked.connect(self._open_provider_setup_guide)
+        guide_toggle = QToolButton()
+        guide_toggle.setText("Anbieter-Anleitungen anzeigen")
+        guide_toggle.setCheckable(True)
+        oform.addWidget(guide_toggle)
+        oform.addWidget(self.setup_provider)
+        oform.addWidget(self.setup_guide_button)
+        self.setup_provider.hide()
+        self.setup_guide_button.hide()
+        guide_toggle.toggled.connect(self.setup_provider.setVisible)
+        guide_toggle.toggled.connect(self.setup_guide_button.setVisible)
+
+        self.provider_hint = QLabel()
+        self.provider_hint.setWordWrap(True)
+        oform.addWidget(self.provider_hint)
+
+        self.privacy_connect_gmail_btn = QPushButton()
+        self.privacy_connect_gmail_btn.setObjectName("SecondaryButton")
+        self.privacy_connect_gmail_btn.clicked.connect(self._privacy_connect_gmail)
+        self.privacy_connect_cal_btn = QPushButton()
+        self.privacy_connect_cal_btn.setObjectName("SecondaryButton")
+        self.privacy_connect_cal_btn.clicked.connect(self._privacy_connect_calendar)
+        self.privacy_disconnect_btn = QPushButton()
+        self.privacy_disconnect_btn.setObjectName("SecondaryButton")
+        self.privacy_disconnect_btn.clicked.connect(self._privacy_disconnect_selected)
+        oform.insertWidget(3, self.privacy_connect_gmail_btn)
+        for btn in (self.privacy_connect_cal_btn, self.privacy_disconnect_btn):
+            oform.addWidget(btn)
+        integ_layout.addWidget(oauth_box)
+
+        guenther_box = QGroupBox()
+        self.guenther_box = guenther_box
+        gform = QFormLayout(guenther_box)
+        self.guenther_model_fixed = QLabel("Lokale Schreibhilfe (mitgeliefert)")
+        self.guenther_hint = QLabel()
+        self.guenther_hint.setWordWrap(True)
+        self.guenther_hint.setObjectName("KkHint")
+        self.lbl_guenther_model = QLabel()
+        self.guenther_writer_status = QLabel()
+        self.guenther_writer_status.setWordWrap(True)
+        self.guenther_writer_status.setObjectName("PageSubtitle")
+        self.cv_import_title = QLabel()
+        self.cv_import_title.setObjectName("NextActionTitle")
+        self.cv_import_body = QLabel()
+        self.cv_import_body.setWordWrap(True)
+        self.cv_import_body.setObjectName("KkHint")
+        self.cv_import_status = QLabel()
+        self.cv_import_status.setWordWrap(True)
+        self.cv_import_status.setObjectName("PageSubtitle")
+        self.local_llm_cv_parsing = QCheckBox()
+        self.local_llm_cv_parsing.setEnabled(False)
+        self.local_llm_cv_parsing.setChecked(False)
+        self.local_llm_cv_parsing.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips, True)
+        self.local_llm_cv_hint = QLabel()
+        self.local_llm_cv_hint.setWordWrap(True)
+        self.local_llm_cv_hint.setObjectName("KkHint")
+        self.local_llm_cv_parsing.toggled.connect(self._sync_local_llm_cv_hint)
+        self.wizard_reopen_btn = QPushButton()
+        self.wizard_reopen_btn.setObjectName("SecondaryButton")
+        self.wizard_reopen_btn.clicked.connect(self._reopen_setup_wizard)
+        gform.addRow(self.lbl_guenther_model, self.guenther_model_fixed)
+        from desktop.widgets.model_setup_panel import ModelSetupPanel
+        self.model_setup = ModelSetupPanel(self)
+        self.model_setup.model_ready.connect(self._model_setup_ready)
+        gform.addRow(self.model_setup)
+        gform.addRow(self.guenther_writer_status)
+        # Optional cloud model with the user's own API key; the local model stays the default.
+        self.cloud_ai_status = QLabel()
+        self.cloud_ai_status.setWordWrap(True)
+        self.cloud_ai_status.setObjectName("PageSubtitle")
+        self.cloud_ai_btn = QPushButton()
+        self.cloud_ai_btn.setObjectName("SecondaryButton")
+        self.cloud_ai_btn.clicked.connect(self._open_cloud_ai_dialog)
+        gform.addRow(self.cloud_ai_status)
+        gform.addRow(self.cloud_ai_btn)
+        self.guenther_hint.hide()
+        gform.addRow(self.cv_import_title)
+        self.cv_import_body.hide()
+        gform.addRow(self.cv_import_status)
+        self.local_llm_cv_parsing.hide()
+        self.local_llm_cv_hint.hide()
+        general_layout.insertWidget(1, self.wizard_reopen_btn)
+        general_layout.insertWidget(4, guenther_box)
+        integ_layout.addStretch(1)
+        self.stack.addWidget(integ_page)
+
+        # --- 4 Daten & Datenschutz ---
+        privacy_page, privacy_layout = _scroll_form()
+        self.section_privacy = QLabel()
+        self.section_privacy.setObjectName("PageTitle")
+        privacy_layout.addWidget(self.section_privacy)
+        privacy_box = QGroupBox()
+        self.privacy_box = privacy_box
+        pform = QVBoxLayout(privacy_box)
+        self.privacy_intro = QLabel()
+        self.privacy_intro.setWordWrap(True)
+        self.privacy_intro.setObjectName("PageSubtitle")
+        pform.addWidget(self.privacy_intro)
+        self.privacy_export_btn = QPushButton()
+        self.privacy_export_btn.setObjectName("SecondaryButton")
+        self.privacy_export_btn.clicked.connect(self._privacy_export)
+        pform.addWidget(self.privacy_export_btn)
+        self.privacy_export_cancel_btn = QPushButton(tr('btn.cancel'))
+        self.privacy_export_cancel_btn.clicked.connect(self._cancel_privacy_export)
+        self.privacy_export_cancel_btn.hide()
+        pform.addWidget(self.privacy_export_cancel_btn)
+        self.settings_export_btn = QPushButton()
+        self.settings_export_btn.setObjectName("SecondaryButton")
+        self.settings_export_btn.clicked.connect(self._export_settings_file)
+        pform.addWidget(self.settings_export_btn)
+        self.settings_import_btn = QPushButton()
+        self.settings_import_btn.setObjectName("SecondaryButton")
+        self.settings_import_btn.clicked.connect(self._import_settings_file)
+        pform.addWidget(self.settings_import_btn)
+        self.local_backup_btn = QPushButton('Lokales Backup erstellen …')
+        self.local_backup_btn.setObjectName('SecondaryButton')
+        self.local_backup_btn.clicked.connect(self._create_local_backup)
+        pform.addWidget(self.local_backup_btn)
+        self.local_backup_verify_btn = QPushButton('Backup überprüfen …')
+        self.local_backup_verify_btn.setObjectName('SecondaryButton')
+        self.local_backup_verify_btn.clicked.connect(self._verify_local_backup)
+        pform.addWidget(self.local_backup_verify_btn)
+        self.local_backup_restore_btn = QPushButton('Backup in leeren Ordner wiederherstellen …')
+        self.local_backup_restore_btn.setObjectName('SecondaryButton')
+        self.local_backup_restore_btn.clicked.connect(self._restore_local_backup)
+        pform.addWidget(self.local_backup_restore_btn)
+        self.local_backup_cancel_btn = QPushButton('Vorgang abbrechen')
+        self.local_backup_cancel_btn.clicked.connect(self._cancel_backup_operation)
+        self.local_backup_cancel_btn.hide()
+        pform.addWidget(self.local_backup_cancel_btn)
+        privacy_layout.addWidget(privacy_box)
+
+        danger_box = QGroupBox()
+        self.danger_box = danger_box
+        dform = QVBoxLayout(danger_box)
+        self.privacy_mail_btn = QPushButton()
+        self.privacy_mail_btn.setObjectName("SecondaryButton")
+        self.privacy_mail_btn.clicked.connect(self._privacy_delete_mail)
+        self.privacy_cal_btn = QPushButton()
+        self.privacy_cal_btn.setObjectName("SecondaryButton")
+        self.privacy_cal_btn.clicked.connect(self._privacy_delete_calendar)
+        self.privacy_logs_btn = QPushButton()
+        self.privacy_logs_btn.setObjectName("SecondaryButton")
+        self.privacy_logs_btn.clicked.connect(self._privacy_delete_logs)
+        self.privacy_all_btn = QPushButton()
+        self.privacy_all_btn.setObjectName("PrimaryButton")
+        self.privacy_all_btn.clicked.connect(self._privacy_delete_all)
+        for btn in (
+            self.privacy_mail_btn,
+            self.privacy_cal_btn,
+            self.privacy_logs_btn,
+            self.privacy_all_btn,
+        ):
+            dform.addWidget(btn)
+        self.danger_toggle = QToolButton()
+        self.danger_toggle.setCheckable(True)
+        privacy_layout.addWidget(_collapsible_host(self.danger_toggle, danger_box))
+        privacy_layout.addStretch(1)
+        self.stack.addWidget(privacy_page)
+
+        # --- 5 Erweitert (sources, search knobs, browser, diagnose) ---
+        adv_page, adv_layout = _scroll_form()
+        self.section_advanced = QLabel()
+        self.section_advanced.setObjectName("PageTitle")
+        adv_layout.addWidget(self.section_advanced)
+
+        self.source_checks: dict[str, QCheckBox] = {}
+        self.source_status = QLabel()
+        self.source_status.setWordWrap(True)
+        src_box = QGroupBox()
+        self.src_box = src_box
+        src_layout = QVBoxLayout(src_box)
+        for key, _label in SOURCES:
+            cb = QCheckBox()
+            self.source_checks[key] = cb
+            src_layout.addWidget(cb)
+        src_layout.addWidget(self.source_status)
+        adv_layout.addWidget(src_box)
+
+        search_box = QGroupBox()
+        self.search_box = search_box
+        sform = QFormLayout(search_box)
+        self.published_days = IntentionalWheelSpinBox()
+        self.published_days.setRange(1, 90)
+        self.min_match_dash = IntentionalWheelSpinBox()
+        self.min_match_dash.setRange(0, 100)
+        self.max_distance = IntentionalWheelSpinBox()
+        self.max_distance.setRange(1, 300)
+        self.search_mode = QComboBox()
+        self.search_mode.addItem("", "profile_discovery")
+        self.search_mode.addItem("", "explicit_titles")
+        self.jobs_per_search = QComboBox()
+        from core.config import JOBS_PER_SEARCH_CHOICES
+
+        for n in JOBS_PER_SEARCH_CHOICES:
+            label = "Max" if n == 0 else str(n)
+            self.jobs_per_search.addItem(label, n)
+        self.lbl_published = QLabel()
+        self.lbl_min_match_dash = QLabel()
+        self.lbl_max_distance = QLabel()
+        self.lbl_search_mode = QLabel()
+        self.lbl_jobs_per_search = QLabel()
+        sform.addRow(self.lbl_search_mode, self.search_mode)
+        sform.addRow(self.lbl_jobs_per_search, self.jobs_per_search)
+        sform.addRow(self.lbl_published, self.published_days)
+        sform.addRow(self.lbl_min_match_dash, self.min_match_dash)
+        sform.addRow(self.lbl_max_distance, self.max_distance)
+        self.home_notice = QLabel()
+        self.home_notice.setWordWrap(True)
+        self.home_notice.setObjectName("WarningLabel")
+        self.change_place_btn = QPushButton()
+        self.change_place_btn.hide()
+        self.change_place_btn.clicked.connect(self._change_place)
+        sform.addRow(self.home_notice)
+        sform.addRow(self.change_place_btn)
+        search_page, search_layout = _scroll_form()
+        search_layout.addWidget(src_box)
+        search_layout.addWidget(search_box)
+        search_layout.addStretch(1)
+
+        br_box = QGroupBox()
+        self.br_box = br_box
+        br_layout = QVBoxLayout(br_box)
+        self.browser_status = QLabel()
+        self.browser_status.setWordWrap(True)
+        btn_row = QHBoxLayout()
+        self.check_browser_btn = QPushButton()
+        self.check_browser_btn.setObjectName("SecondaryButton")
+        self.check_browser_btn.clicked.connect(self.check_browser_component)
+        self.repair_browser_btn = QPushButton()
+        self.repair_browser_btn.setObjectName("SecondaryButton")
+        self.repair_browser_btn.clicked.connect(self.repair_browser_component)
+        btn_row.addWidget(self.check_browser_btn)
+        btn_row.addWidget(self.repair_browser_btn)
+        btn_row.addStretch(1)
+        br_layout.addWidget(self.browser_status)
+        br_layout.addLayout(btn_row)
+        adv_layout.addWidget(br_box)
+
+        diag_box = QGroupBox()
+        self.diag_box = diag_box
+        dform = QVBoxLayout(diag_box)
+        self.diag_intro = QLabel()
+        self.diag_intro.setWordWrap(True)
+        self.diag_intro.setObjectName("PageSubtitle")
+        self.open_logs_btn = QPushButton()
+        self.open_logs_btn.setObjectName("SecondaryButton")
+        self.open_logs_btn.clicked.connect(self._open_diagnose_logs)
+        dform.addWidget(self.diag_intro)
+        dform.addWidget(self.open_logs_btn)
+        self.apply_test_btn = QPushButton()
+        self.apply_test_btn.setObjectName("SecondaryButton")
+        self.apply_test_btn.clicked.connect(self._request_apply_test)
+        self.clear_jobs_btn = QPushButton()
+        self.clear_jobs_btn.setObjectName("SecondaryButton")
+        self.clear_jobs_btn.clicked.connect(self._request_clear_jobs)
+        dform.addWidget(self.apply_test_btn)
+        dform.addWidget(self.clear_jobs_btn)
+        adv_layout.addWidget(diag_box)
+        adv_layout.addStretch(1)
+        self.stack.addWidget(adv_page)
+        self.stack.addWidget(search_page)
+        self._browser_busy = False
+
+        self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        self.nav.setCurrentRow(1)  # Automation as in demo default
+
+        self.save_btn = QPushButton()
+        self.save_btn.setObjectName("PrimaryButton")
+        self.save_btn.clicked.connect(self.save)
+        polish_interactive(self.save_btn)
+        footer = QWidget()
+        footer.setObjectName("SettingsFooter")
+        footer.setLayout(footer_actions_layout(self.save_btn))
+        footer.layout().setContentsMargins(16, 12, 16, 16)
+        root.addWidget(footer)
+
+        apply_wheel_guard_to_spinboxes(self)
+        self._annotate_a11y_controls()
+        self.retranslate_ui()
+
+    def _annotate_a11y_controls(self) -> None:
+        from desktop.design_system.a11y import annotate_button, wire_form_row
+
+        wire_form_row(self.lang_label, self.lang_combo)
+        wire_form_row(self.theme_label, self.theme_combo)
+        annotate_button(self.high_contrast)
+        annotate_button(self.save_btn)
+        for btn in (
+            self.privacy_connect_gmail_btn,
+            self.privacy_connect_cal_btn,
+            self.privacy_export_btn,
+            self.privacy_disconnect_btn,
+            self.privacy_mail_btn,
+            self.privacy_cal_btn,
+            self.privacy_logs_btn,
+            self.privacy_all_btn,
+            self.check_browser_btn,
+            self.repair_browser_btn,
+            self.about_btn,
+            self.open_logs_btn,
+        ):
+            annotate_button(btn)
+
+    def _open_cloud_ai_dialog(self) -> None:
+        from desktop.widgets.cloud_ai_dialog import CloudAiDialog
+
+        CloudAiDialog(self).exec()
+        self._refresh_cloud_ai_status()
+
+    def _refresh_cloud_ai_status(self) -> None:
+        from desktop.widgets.cloud_ai_dialog import cloud_ai_summary
+
+        self.cloud_ai_status.setText(cloud_ai_summary())
+        self.cloud_ai_btn.setText(tr("cloud_ai.open"))
+
+    def retranslate_ui(self) -> None:
+        self.header.set_texts(tr("nav.settings"))
+        self.updates.retranslate()
+        for i, key in enumerate(_SETTINGS_NAV_KEYS):
+            item = self.nav.item(i)
+            if item is not None:
+                item.setText(tr(key))
+        self.section_general.setText(tr("settings.nav.general"))
+        self._refresh_cloud_ai_status()
+        self.section_automation.setText(tr("settings.nav.automation"))
+        self.section_communication.setText(tr("settings.nav.communication"))
+        self.section_integrations.setText(tr("settings.nav.integrations"))
+        self.section_privacy.setText(tr("settings.nav.privacy"))
+        self.section_advanced.setText(tr("settings.nav.advanced"))
+        self.safety_toggle.setText(tr("settings.safety_limits"))
+        self.danger_toggle.setText(tr("settings.danger_zone"))
+        self.oauth_box.setTitle(tr("settings.nav.integrations"))
+        self.danger_box.setTitle(tr("settings.danger_zone"))
+        self.privacy_box.setTitle(escape_mnemonic(tr("privacy.title")))
+        self.privacy_intro.setText(tr("privacy.intro"))
+        if hasattr(self, "lbl_mail_provider"):
+            self.lbl_mail_provider.setText(tr("integrations.mail.label"))
+            self.lbl_calendar_provider.setText(tr("integrations.calendar.label"))
+            self.lbl_calendar_mode.setText(tr("integrations.calendar.mode_label"))
+            mode_cur = self.calendar_google_mode.currentData()
+            self.calendar_google_mode.blockSignals(True)
+            self.calendar_google_mode.clear()
+            self.calendar_google_mode.addItem(tr("integrations.calendar.mode_a"), "A")
+            self.calendar_google_mode.addItem(tr("integrations.calendar.mode_b"), "B")
+            midx = self.calendar_google_mode.findData(mode_cur or "A")
+            self.calendar_google_mode.setCurrentIndex(midx if midx >= 0 else 0)
+            self.calendar_google_mode.blockSignals(False)
+            self._update_calendar_mode_rights()
+            self.provider_hint.setText("Kostenlos: Du verbindest dein Postfach mit einem App-Passwort und deinen Kalender per Link oder Datei (Google, Samsung, Apple, Outlook). Die Schritte erklärt dir das jeweilige Fenster. Die direkte Anmeldung bei Google kommt später mit Premium.")
+            # refresh combo labels
+            for combo, keys in (
+                (
+                    self.mail_provider,
+                    [
+                        ("integrations.mail.none", "none"),
+                        ("integrations.mail.other", "generic_imap"),
+                        ("integrations.mail.google", "google_gmail"),
+                    ],
+                ),
+                (
+                    self.calendar_provider,
+                    [
+                        ("integrations.calendar.other", "generic_caldav"),
+                        ("free.calendar.ics", "local_ics"),
+                        ("integrations.calendar.google", "google_calendar"),
+                        ("integrations.calendar.none_explicit", "none"),
+                    ],
+                ),
+            ):
+                cur = combo.currentData()
+                combo.clear()
+                for key, data in keys:
+                    labels = {
+                        "generic_imap": "Gmail / WEB.DE / T-Online / Outlook · kostenlos",
+                        "generic_caldav": "Apple / iCloud · CalDAV (kostenlos)",
+                        "local_ics": "Google / Samsung / Apple · ICS-Datei (kostenlos)",
+                        "google_gmail": "Google Gmail · Premium, bald verfügbar",
+                        "google_calendar": "Google Kalender · Premium, bald verfügbar",
+                    }
+                    combo.addItem(labels.get(data, tr(key)), data)
+                idx = combo.findData(cur)
+                combo.setCurrentIndex(idx if idx >= 0 else 0)
+            self.mail_status.setText(tr("integrations.status.unknown"))
+            self.calendar_status.setText(tr("integrations.status.unknown"))
+        self.privacy_connect_gmail_btn.setText("E-Mail kostenlos verbinden …")
+        self.privacy_connect_cal_btn.setText("Kalender kostenlos verbinden / importieren …")
+        self.privacy_export_btn.setText(tr("privacy.export"))
+        self.settings_export_btn.setText(tr("settings.transfer_export"))
+        self.settings_export_btn.setToolTip(tr("settings.transfer_tip"))
+        self.settings_import_btn.setText(tr("settings.transfer_import"))
+        self.settings_import_btn.setToolTip(tr("settings.transfer_tip"))
+        self.privacy_disconnect_btn.setText(tr("integrations.disconnect_selected"))
+        self.privacy_mail_btn.setText(tr("privacy.delete_mail"))
+        self.privacy_cal_btn.setText(tr("privacy.delete_calendar"))
+        self.privacy_logs_btn.setText(tr("privacy.delete_logs"))
+        self.privacy_all_btn.setText(tr("privacy.delete_all"))
+        self.general_box.setTitle(tr("settings.general"))
+        self.appear_box.setTitle(tr("settings.general"))
+        self.src_box.setTitle(tr("settings.sources"))
+        self.search_box.setTitle(tr("settings.search"))
+        self.mode_box.setTitle(tr("settings.mode"))
+        self.apply_box.setTitle(tr("settings.auto_apply"))
+        self.bg_box.setTitle(tr("settings.automation"))
+        self.br_box.setTitle(tr("settings.browser"))
+        self.diag_box.setTitle(tr("settings.advanced"))
+        self.diag_intro.setText(tr("settings.open_diagnose_logs"))
+        self.open_logs_btn.setText(tr("settings.open_diagnose_logs"))
+        self.apply_test_btn.setText(tr("btn.apply_test"))
+        self.clear_jobs_btn.setText(tr("btn.clear_jobs"))
+        self.lang_label.setText(tr("settings.language"))
+        self.theme_label.setText(tr("settings.theme"))
+        self.high_contrast.setText(tr("a11y.high_contrast"))
+        self.high_contrast.setToolTip(tr("a11y.high_contrast_hint"))
+        self.start_windows.setText(tr("settings.start_windows"))
+        self.minimize_tray.setText(tr("settings.minimize_tray"))
+        self.lang_combo.setItemText(0, tr("lang.de"))
+        self.lang_combo.setItemText(1, tr("lang.en"))
+        self.theme_combo.setItemText(0, tr("settings.theme.system"))
+        self.theme_combo.setItemText(1, tr("settings.theme.light"))
+        self.theme_combo.setItemText(2, tr("settings.theme.dark"))
+        for key, label in SOURCES:
+            text = tr("settings.company_sites") if key == "company_sites" else label
+            self.source_checks[key].setText(text)
+        self.mode_search.setText(tr("settings.mode.search"))
+        self.mode_review.setText(tr("settings.mode.review"))
+        self.mode_auto.setText(tr("settings.mode.auto"))
+        self.dry_run.setText(tr("settings.dry_run"))
+        self.lbl_published.setText(tr("settings.published_days"))
+        self.lbl_min_match_dash.setText(tr("settings.min_match_dash"))
+        self.lbl_max_distance.setText(tr("settings.max_distance"))
+        self._refresh_home_notice()
+        self.lbl_search_mode.setText(tr("settings.search_mode"))
+        self.lbl_jobs_per_search.setText(tr("settings.jobs_per_search"))
+        cur_mode = self.search_mode.currentData()
+        self.search_mode.setItemText(0, tr("settings.search_mode.discovery"))
+        self.search_mode.setItemText(1, tr("settings.search_mode.explicit"))
+        idx = self.search_mode.findData(cur_mode)
+        if idx >= 0:
+            self.search_mode.setCurrentIndex(idx)
+        # Refresh Max label translation-agnostic (numeric data preserved)
+        for i in range(self.jobs_per_search.count()):
+            data = self.jobs_per_search.itemData(i)
+            if data == 0:
+                self.jobs_per_search.setItemText(i, tr("settings.jobs_per_search.max"))
+        self.lbl_min_match_apply.setText(tr("settings.min_match_apply"))
+        self.lbl_max_per_run.setText(tr("settings.max_per_run"))
+        self.lbl_max_per_day.setText(tr("settings.max_per_day"))
+        self.lbl_max_fail.setText(tr("settings.max_fail"))
+        self.lbl_delay.setText(tr("settings.delay"))
+        self.auto_cover.setText(tr("settings.auto_cover"))
+        self.cover_templates_btn.setText(tr("templates.open"))
+        self.auto_submit.setText(tr("settings.auto_submit"))
+        if hasattr(self, "life_box"):
+            self.life_box.setTitle(tr("settings.lifecycle"))
+            self.lbl_preferred_contact.setText(tr("settings.preferred_contact"))
+            self.phone_available.setText(tr("settings.phone_available"))
+            self.lbl_tel_avail.setText(tr("settings.telephone_availability"))
+            self.lbl_working_hours.setText(tr("settings.working_hours"))
+            self.lbl_follow_up_days.setText(tr("settings.follow_up_days"))
+            self.lbl_ghosted_days.setText(tr("settings.ghosted_days"))
+            self.lbl_archive_after_days.setText(tr("settings.archive_after_days"))
+            self.reply_popups.setText(tr("settings.reply_popups"))
+            self.archive_after_days.setSpecialValueText(tr("settings.archive_never"))
+            self.archive_after_days.setToolTip(tr("settings.archive_after_days_tip"))
+            self.followup_enabled.setText(tr("settings.followup_enabled"))
+            self.followup_reminders_enabled.setText(tr("settings.followup_reminders_enabled"))
+            self.email_draft_only.setText(tr("settings.email_draft_only"))
+            self.allow_employer_email_send.setText(tr("settings.allow_employer_email_send"))
+        if hasattr(self, "guenther_box"):
+            self.guenther_box.setTitle(tr("settings.guenther"))
+            self.lbl_guenther_model.setText(tr("settings.guenther_model"))
+            self.guenther_hint.setText(tr("settings.guenther_hint"))
+            if hasattr(self, "guenther_model_fixed"):
+                self.guenther_model_fixed.setText(tr("settings.guenther_model.sole"))
+            if hasattr(self, "cv_import_title"):
+                self.cv_import_title.setText(tr("settings.cv_import_path_title"))
+                self.cv_import_body.setText(tr("settings.cv_import_path_body"))
+            if hasattr(self, "wizard_reopen_btn"):
+                self.wizard_reopen_btn.setText(tr("wizard.reopen"))
+            if hasattr(self, "local_llm_cv_parsing"):
+                self.local_llm_cv_parsing.setText(tr("settings.local_llm_cv_parsing"))
+                self._sync_local_llm_cv_hint()
+            self._refresh_guenther_status_labels()
+        self.run_auto.setText(tr("settings.run_auto"))
+        self.lbl_schedule.setText(tr("settings.schedule"))
+        self.lbl_interval.setText(tr("settings.interval"))
+        self.lbl_times.setText(tr("settings.times"))
+        self.paused.setText(tr("settings.paused"))
+        # rebuild schedule items preserving data
+        current = self.schedule_mode.currentData()
+        self.schedule_mode.clear()
+        for key in (
+            "settings.schedule.on_login",
+            "settings.schedule.every",
+            "settings.schedule.once",
+            "settings.schedule.twice",
+            "settings.schedule.custom",
+        ):
+            data = {
+                "settings.schedule.on_login": "on_login",
+                "settings.schedule.every": "every_x_hours",
+                "settings.schedule.once": "once_daily",
+                "settings.schedule.twice": "twice_daily",
+                "settings.schedule.custom": "custom",
+            }[key]
+            self.schedule_mode.addItem(tr(key), data)
+        idx = self.schedule_mode.findData(current)
+        self.schedule_mode.setCurrentIndex(idx if idx >= 0 else 1)
+        self.custom_times.setPlaceholderText("08:00, 17:00")
+        self.check_browser_btn.setText(tr("btn.check_browser"))
+        self.repair_browser_btn.setText(tr("btn.repair_browser"))
+        self.open_logs_btn.setText(tr("settings.open_diagnose_logs"))
+        self.about_btn.setText(tr("about.open"))
+        self.save_btn.setText(tr("btn.save_settings"))
+        apply_button_icon(self.save_btn, "save", color="#ffffff")
+        self._annotate_a11y_controls()
+
+    def _sync_local_llm_cv_hint(self) -> None:
+        if not hasattr(self, "local_llm_cv_hint"):
+            return
+        self.local_llm_cv_parsing.setEnabled(False)
+        self.local_llm_cv_parsing.setChecked(False)
+        self.local_llm_cv_parsing.setToolTip(tr("settings.local_llm_cv_unavailable"))
+        self.local_llm_cv_hint.setText(tr("settings.local_llm_cv_disabled_hint"))
+
+    def _refresh_guenther_status_labels(self) -> None:
+        if not hasattr(self, "guenther_writer_status"):
+            return
+        from guenther.setup_models import SETUP_MODEL_CATALOG, selected_model_id
+        mid = selected_model_id()
+        if mid and hasattr(self, "guenther_model_fixed"):
+            self.guenther_model_fixed.setText(SETUP_MODEL_CATALOG[mid]["display_name"])
+        # Günther is always on — no user toggle. Status only reflects model readiness.
+        writer_ok = False
+        try:
+            from core.cv_llm_runtime import resolve_cv_model_path
+
+            writer_ok = resolve_cv_model_path() is not None
+        except Exception:
+            writer_ok = False
+        if writer_ok:
+            self.guenther_writer_status.setText(tr("settings.guenther_writer_status_on"))
+        else:
+            self.guenther_writer_status.setText(tr("settings.guenther_writer_unavailable"))
+        cv_ok = False
+        try:
+            from core.cv_llm_runtime import resolve_cv_model_path
+            from importlib.util import find_spec
+
+            model_ok = resolve_cv_model_path() is not None
+            try:
+                docpick_ok = find_spec("docpick") is not None
+            except Exception:
+                docpick_ok = False
+            # Status rendering must not load optional native DLLs on the UI thread.
+            cv_ok = bool(model_ok and docpick_ok and find_spec("llama_cpp") is not None)
+        except Exception:
+            cv_ok = False
+        if hasattr(self, "cv_import_status"):
+            self.cv_import_status.setText(
+                tr("settings.cv_import_status_ready")
+                if cv_ok
+                else tr("settings.cv_import_status_unavailable")
+            )
+
+    def _model_setup_ready(self, model_id):
+        cfg = self.config_service.load()
+        cfg.settings.guenther_model = model_id
+        self.config_service.save(cfg)
+        self._refresh_guenther_status_labels()
+        self.settings_saved.emit()
+
+    def show_updates(self) -> None:
+        self.nav.setCurrentRow(0)
+        from PySide6.QtWidgets import QScrollArea
+        scroll = self.updates.parentWidget()
+        while scroll is not None and not isinstance(scroll, QScrollArea):
+            scroll = scroll.parentWidget()
+        if scroll is not None:
+            scroll.ensureWidgetVisible(self.updates)
+        self.updates.install_button.setFocus()
+
+    def show_model_setup(self) -> None:
+        """Scroll to the model choice (used after a CV import that did not fit in memory)."""
+        from PySide6.QtWidgets import QScrollArea
+
+        panel = self.model_setup
+        page = panel.parentWidget()
+        while page is not None:
+            idx = self.stack.indexOf(page)
+            if idx >= 0:
+                self.nav.setCurrentRow(idx)
+                break
+            page = page.parentWidget()
+        scroll = panel.parentWidget()
+        while scroll is not None and not isinstance(scroll, QScrollArea):
+            scroll = scroll.parentWidget()
+        if scroll is not None:
+            scroll.ensureWidgetVisible(panel)
+        panel.setFocus()
+
+    def _reopen_setup_wizard(self) -> None:
+        from desktop.wizard import FirstRunWizard
+
+        wizard = FirstRunWizard(self.config_service, self, force=True)
+        wizard.exec()
+        self.load_from_config()
+        parent = self.window()
+        if parent is not None and hasattr(parent, "refresh_all"):
+            parent.refresh_all()  # type: ignore[attr-defined]
+
+    def _open_diagnose_logs(self) -> None:
+        parent = self.window()
+        if parent is not None and hasattr(parent, "open_diagnose_logs"):
+            parent.open_diagnose_logs()  # type: ignore[attr-defined]
+
+    def _request_apply_test(self) -> None:
+        parent = self.window()
+        if parent is not None and hasattr(parent, "run_application_test"):
+            parent.run_application_test()  # type: ignore[attr-defined]
+
+    def _request_clear_jobs(self) -> None:
+        parent = self.window()
+        if parent is not None and hasattr(parent, "clear_job_data"):
+            parent.clear_job_data()  # type: ignore[attr-defined]
+
+    def open_about(self) -> None:
+        AboutDialog(self, data_dir=self.config_service.dirs["root"]).exec()
+
+    def _change_place(self) -> None:
+        parent = self.window()
+        if parent is not None and hasattr(parent, "edit_search_home"):
+            parent.edit_search_home()
+
+    def _refresh_home_notice(self) -> None:
+        """Re-read home resolution. No PLZ is guessed."""
+        from core.location import home_location_notice
+        from desktop.pages.dashboard import bind_home_notice_label
+
+        cfg = self.config_service.load()
+        bind_home_notice_label(
+            self.home_notice,
+            home_location_notice(cfg.profile.location, cfg),
+            self.change_place_btn,
+        )
+
+    def load_from_config(self) -> None:
+        cfg = self.config_service.load()
+        s = cfg.settings
+        lang_idx = self.lang_combo.findData((s.language or "de").lower())
+        self.lang_combo.setCurrentIndex(lang_idx if lang_idx >= 0 else 0)
+        theme_idx = self.theme_combo.findData((s.theme or "system").lower())
+        self.theme_combo.setCurrentIndex(theme_idx if theme_idx >= 0 else 0)
+        self.high_contrast.setChecked(bool(getattr(s, "high_contrast", False)))
+        self.start_windows.setChecked(bool(getattr(s, "start_with_windows", False)))
+        self.minimize_tray.setChecked(bool(getattr(s, "minimize_to_tray", False)))
+        {
+            "search_only": self.mode_search,
+            "review_before_submit": self.mode_review,
+            "fully_automatic": self.mode_auto,
+        }.get(s.mode, self.mode_search).setChecked(True)
+        self.dry_run.setChecked(bool(s.dry_run))
+        enabled = set(s.enabled_sources or [])
+        for key, cb in self.source_checks.items():
+            cb.setChecked(key in enabled)
+        self.published_days.setValue(int(s.published_within_days))
+        self.min_match_dash.setValue(int(s.minimum_match_for_dashboard))
+        mode_idx = self.search_mode.findData(
+            str(getattr(s, "search_mode", "profile_discovery") or "profile_discovery")
+        )
+        self.search_mode.setCurrentIndex(mode_idx if mode_idx >= 0 else 0)
+        jps = int(getattr(s, "jobs_per_search", 40) or 0)
+        jps_idx = self.jobs_per_search.findData(jps)
+        if jps_idx < 0:
+            from core.config import normalize_jobs_per_search
+
+            jps_idx = self.jobs_per_search.findData(normalize_jobs_per_search(jps))
+        self.jobs_per_search.setCurrentIndex(jps_idx if jps_idx >= 0 else 3)
+        self.max_distance.setValue(int(cfg.profile.location.max_distance_km))
+        self._refresh_home_notice()
+        self.min_match_apply.setValue(int(s.minimum_match_for_auto_apply))
+        self.max_per_run.setValue(int(s.max_applications_per_run))
+        self.max_per_day.setValue(int(s.max_applications_per_day))
+        self.max_fail.setValue(int(s.max_failed_applications_per_run))
+        self.delay.setValue(int(s.delay_between_applications_seconds))
+        self.auto_cover.setChecked(bool(getattr(s, "automatic_cover_letters", True)))
+        self.auto_submit.setChecked(bool(getattr(s, "automatic_submission", False)))
+        if hasattr(self, "preferred_contact"):
+            pc = self.preferred_contact.findData(getattr(s, "preferred_contact", "email") or "email")
+            self.preferred_contact.setCurrentIndex(pc if pc >= 0 else 0)
+            self.phone_available.setChecked(bool(getattr(s, "phone_available", True)))
+            self.telephone_availability.setText(str(getattr(s, "telephone_availability", "") or ""))
+            self.working_hours.setText(str(getattr(s, "working_hours", "") or "09:00-17:00"))
+            self.follow_up_days.setValue(int(getattr(s, "follow_up_days", 14) or 14))
+            self.ghosted_days.setValue(int(getattr(s, "ghosted_days", 21) or 21))
+            self.archive_after_days.setValue(int(getattr(s, "archive_after_days", 14)))
+            self.reply_popups.setChecked(bool(getattr(s, "reply_popups", True)))
+            self.followup_enabled.setChecked(bool(getattr(s, "followup_enabled", True)))
+            self.followup_reminders_enabled.setChecked(bool(getattr(s, "followup_reminders_enabled", False)))
+            self.email_draft_only.setChecked(bool(getattr(s, "email_draft_only", True)))
+            self.allow_employer_email_send.setChecked(
+                bool(getattr(s, "allow_employer_email_send", False))
+            )
+        if hasattr(self, "guenther_box"):
+            self._refresh_guenther_status_labels()
+        if hasattr(self, "local_llm_cv_parsing"):
+            self.local_llm_cv_parsing.setEnabled(False)
+            self.local_llm_cv_parsing.setChecked(False)
+        if hasattr(self, "mail_provider"):
+            mp = self.mail_provider.findData(getattr(s, "mail_provider", "none") or "none")
+            self.mail_provider.setCurrentIndex(mp if mp >= 0 else 0)
+            cp = self.calendar_provider.findData(
+                getattr(s, "calendar_provider", "none") or "none"
+            )
+            self.calendar_provider.setCurrentIndex(cp if cp >= 0 else max(0, self.calendar_provider.count() - 1))
+            mode = str(getattr(s, "calendar_google_mode", "A") or "A").upper()
+            if mode not in {"A", "B"}:
+                mode = "A"
+            mi = self.calendar_google_mode.findData(mode)
+            self.calendar_google_mode.setCurrentIndex(mi if mi >= 0 else 0)
+            self._update_calendar_mode_rights()
+            self._refresh_provider_status(s)
+        self.run_auto.setChecked(bool(s.run_automatically))
+        idx = self.schedule_mode.findData(s.schedule_mode)
+        self.schedule_mode.setCurrentIndex(idx if idx >= 0 else 1)
+        self.interval_hours.setValue(int(s.schedule_interval_hours or 6))
+        self.custom_times.setText(", ".join(s.schedule_times or []))
+        self.paused.setChecked(bool(s.automation_paused))
+
+        db = Database(cfg.db_path)
+        lines = []
+        for row in db.list_source_status():
+            st = row.get("status") or "unknown"
+            label = {
+                "ok": tr("settings.source_active"),
+                "OK_WITH_RESULTS": tr("settings.source_ok_results"),
+                "OK_EMPTY": tr("settings.source_ok_empty"),
+                "TIMEOUT": tr("settings.source_timeout"),
+                "BLOCKED": tr("settings.source_blocked"),
+                "PARSER_ERROR": tr("settings.source_parser"),
+                "NETWORK_ERROR": tr("settings.source_network"),
+                "AUTH_REQUIRED": tr("settings.source_login"),
+                "RATE_LIMITED": tr("settings.source_rate"),
+                "DISABLED": tr("settings.source_unavailable"),
+                "PLACEHOLDER": tr("settings.source_placeholder"),
+                "CANCELLED": tr("settings.source_cancelled"),
+                "ERROR": tr("settings.source_error"),
+                "error": tr("settings.source_error"),
+                "login_required": tr("settings.source_login"),
+                "unavailable": tr("settings.source_unavailable"),
+            }.get(st, st)
+            msg = (row.get("message") or "").strip()
+            jobs_n = row.get("jobs_found")
+            suffix = f" ({jobs_n} Jobs)" if jobs_n is not None else ""
+            if st in {"error", "ERROR", "TIMEOUT", "NETWORK_ERROR", "PARSER_ERROR", "BLOCKED"} and msg:
+                lines.append(f"{row.get('source')}: {label}{suffix}")
+                lines.append(f"  {msg[:240]}")
+            else:
+                lines.append(
+                    f"{row.get('source')}: {label}{suffix}"
+                    + (f" – {msg[:80]}" if msg else "")
+                )
+        self.source_status.setText("\n".join(lines) if lines else tr("settings.no_source_status"))
+        self.browser_status.setText(
+            tr("settings.browser_ok") if playwright_available() else tr("settings.browser_missing")
+        )
+
+    def _check_device(self) -> None:
+        if not self.model_setup.busy:
+            self.model_setup.refresh_recommendation()
+
+    def _save_dry_run(self, enabled: bool) -> None:
+        """Apply this setting immediately for subsequent runs."""
+        cfg = self.config_service.load()
+        cfg.settings.dry_run = enabled
+        self.config_service.save(cfg)
+        self.settings_saved.emit()
+
+    def save(self) -> None:
+        cfg = self.config_service.load()
+        old_lang = (cfg.settings.language or "de").lower()
+        cfg.settings.language = self.lang_combo.currentData() or "de"
+        cfg.settings.theme = self.theme_combo.currentData() or "system"
+        cfg.settings.high_contrast = self.high_contrast.isChecked()
+        cfg.settings.start_with_windows = self.start_windows.isChecked()
+        cfg.settings.minimize_to_tray = self.minimize_tray.isChecked()
+        if self.mode_search.isChecked():
+            cfg.settings.mode = "search_only"
+        elif self.mode_review.isChecked():
+            cfg.settings.mode = "review_before_submit"
+        else:
+            cfg.settings.mode = "fully_automatic"
+        cfg.settings.dry_run = self.dry_run.isChecked()
+        cfg.settings.enabled_sources = [
+            key for key, cb in self.source_checks.items() if cb.isChecked()
+        ]
+        cfg.settings.published_within_days = self.published_days.value()
+        cfg.settings.minimum_match_for_dashboard = self.min_match_dash.value()
+        cfg.settings.search_mode = str(
+            self.search_mode.currentData() or "profile_discovery"
+        )
+        cfg.settings.jobs_per_search = int(self.jobs_per_search.currentData() or 40)
+        cfg.profile.location.max_distance_km = float(self.max_distance.value())
+        cfg.settings.minimum_match_for_auto_apply = self.min_match_apply.value()
+        cfg.settings.max_applications_per_run = self.max_per_run.value()
+        cfg.settings.max_applications_per_day = self.max_per_day.value()
+        cfg.settings.max_failed_applications_per_run = self.max_fail.value()
+        cfg.settings.delay_between_applications_seconds = self.delay.value()
+        cfg.settings.automatic_cover_letters = self.auto_cover.isChecked()
+        cfg.settings.automatic_submission = self.auto_submit.isChecked()
+        if hasattr(self, "preferred_contact"):
+            cfg.settings.preferred_contact = str(
+                self.preferred_contact.currentData() or "email"
+            )
+            cfg.settings.phone_available = self.phone_available.isChecked()
+            cfg.settings.telephone_availability = self.telephone_availability.text().strip()
+            cfg.settings.working_hours = self.working_hours.text().strip() or "09:00-17:00"
+            cfg.settings.follow_up_days = int(self.follow_up_days.value())
+            cfg.settings.ghosted_days = int(self.ghosted_days.value())
+            cfg.settings.archive_after_days = int(self.archive_after_days.value())
+            cfg.settings.reply_popups = self.reply_popups.isChecked()
+            cfg.settings.followup_enabled = self.followup_enabled.isChecked()
+            cfg.settings.followup_reminders_enabled = self.followup_reminders_enabled.isChecked()
+            cfg.settings.email_draft_only = self.email_draft_only.isChecked()
+            cfg.settings.allow_employer_email_send = self.allow_employer_email_send.isChecked()
+        # Günther is always enabled — no UI toggle; persist True for callers/tests.
+        cfg.settings.guenther_enabled = True
+        from guenther.hardware import resolve_production_model
+        cfg.settings.guenther_model = resolve_production_model(cfg.settings.guenther_model)
+        cfg.settings.guenther_heuristic_fallback = False
+        if hasattr(self, "mail_provider"):
+            cfg.settings.mail_provider = str(self.mail_provider.currentData() or "none")
+            cfg.settings.calendar_provider = str(
+                self.calendar_provider.currentData() or "none"
+            )
+            cfg.settings.calendar_google_mode = str(
+                self.calendar_google_mode.currentData() or "A"
+            ).upper()
+            if cfg.settings.calendar_google_mode not in {"A", "B"}:
+                cfg.settings.calendar_google_mode = "A"
+        cfg.settings.run_automatically = self.run_auto.isChecked()
+        cfg.settings.schedule_mode = self.schedule_mode.currentData()
+        cfg.settings.schedule_interval_hours = self.interval_hours.value()
+        times = [t.strip() for t in self.custom_times.text().split(",") if t.strip()]
+        cfg.settings.schedule_times = times or ["08:00"]
+        cfg.settings.automation_paused = self.paused.isChecked()
+
+        errors = self.config_service.validate(cfg)
+        if errors:
+            QMessageBox.warning(self, tr("nav.settings"), "\n".join(errors))
+            return
+        self.config_service.save(cfg)
+        ok, msg = ScheduleService(cfg).sync_from_config()
+        self.appearance_changed.emit()
+        self.settings_saved.emit()
+        note = tr("settings.saved")
+        if (cfg.settings.language or "de").lower() != old_lang:
+            note = f"{note}\n{tr('settings.lang_restart')}"
+        QMessageBox.information(
+            self,
+            tr("nav.settings"),
+            f"{note}\n{msg}" if ok else f"{note}\n{msg}",
+        )
+        self.load_from_config()
+
+    def _set_browser_busy(self, busy: bool) -> None:
+        self._browser_busy = busy
+        self.check_browser_btn.setEnabled(not busy)
+        self.repair_browser_btn.setEnabled(not busy)
+
+    def check_browser_component(self) -> None:
+        if self._browser_busy:
+            return
+        self._set_browser_busy(True)
+        self.browser_status.setText(tr("settings.browser_checking"))
+        worker = BrowserCheckWorker()
+        thread = start_worker(worker)
+
+        def done(ok: bool, msg: str) -> None:
+            self._browser_worker = None
+            self._browser_thread = None
+            self._set_browser_busy(False)
+            self.browser_status.setText(
+                tr("settings.browser_ok") if ok else tr("settings.browser_missing")
+            )
+            if ok:
+                QMessageBox.information(self, tr("settings.browser"), msg)
+            else:
+                self._offer_browser_install()
+
+        connect_queued(worker.finished, done)
+        self._browser_worker = worker
+        self._browser_thread = thread
+
+    def _offer_browser_install(self) -> None:
+        """Missing browser is optional — explain and offer (never auto-start) install."""
+        from desktop.services.browser_install import preferred_browsers_dir
+
+        box, install_btn, _later = build_confirm_box(
+            self,
+            tr("settings.browser"),
+            tr("settings.browser_missing_body", path=str(preferred_browsers_dir())),
+            confirm_text=tr("settings.browser_install_now"),
+            cancel_text=tr("settings.browser_later"),
+        )
+        box.setIcon(QMessageBox.Icon.Information)
+        box.exec()
+        if box.clickedButton() is install_btn:
+            self.repair_browser_component()
+
+    def repair_browser_component(self) -> None:
+        if self._browser_busy:
+            return
+        self._set_browser_busy(True)
+        self.browser_status.setText(tr("settings.browser_repairing"))
+        worker = BrowserRepairWorker()
+        thread = start_worker(worker)
+
+        def done(ok: bool, msg: str) -> None:
+            self._browser_worker = None
+            self._browser_thread = None
+            self._set_browser_busy(False)
+            self.browser_status.setText(
+                tr("settings.browser_ok") if ok else tr("settings.browser_missing")
+            )
+            if ok:
+                QMessageBox.information(self, tr("settings.browser"), msg)
+            else:
+                QMessageBox.warning(self, tr("settings.browser"), msg)
+
+        connect_queued(worker.finished, done)
+        self._browser_worker = worker
+        self._browser_thread = thread
+
+    def _privacy_life(self):
+        return self.config_service.privacy_lifecycle()
+
+    def _privacy_report(self, result) -> None:
+        if getattr(result, "ok", False) and getattr(result, "verified", False):
+            QMessageBox.information(self, tr("privacy.tab"), tr("privacy.action_ok"))
+        else:
+            QMessageBox.warning(self, tr("privacy.tab"), tr("privacy.action_failed"))
+
+    def _open_cover_templates(self) -> None:
+        from desktop.widgets.cover_templates_dialog import CoverTemplatesDialog
+
+        CoverTemplatesDialog(self.config_service, self).exec()
+
+    def _export_settings_file(self) -> None:
+        from datetime import date
+
+        from core.settings_transfer import export_all
+        from desktop import __version__
+
+        path, _ = QFileDialog.getSaveFileName(self, tr("settings.transfer_export"),
+                                              f"Karrierekrake_Einstellungen_{date.today().isoformat()}.json", "JSON (*.json)")
+        if not path:
+            return
+        try:
+            export_all(self.config_service.load(), path, app_version=__version__)
+        except OSError:
+            QMessageBox.warning(self, tr("nav.settings"), tr("apps.export_failed"))
+            return
+        QMessageBox.information(self, tr("nav.settings"), tr("settings.transfer_exported", path=path))
+
+    def _import_settings_file(self) -> None:
+        from core.settings_transfer import SettingsImportError, import_all
+
+        path, _ = QFileDialog.getOpenFileName(self, tr("settings.transfer_import"), "", "JSON (*.json)")
+        if not path:
+            return
+        if not confirm_action(self, tr("settings.transfer_import"), tr("settings.transfer_confirm"),
+                              confirm_text=tr("settings.transfer_import_go")):
+            return
+        try:
+            cfg, applied, skipped, _profile = import_all(self.config_service.load(), path)
+        except (OSError, ValueError, SettingsImportError):
+            QMessageBox.warning(self, tr("nav.settings"), tr("settings.transfer_invalid"))
+            return
+        errors = self.config_service.validate(cfg)
+        if errors:
+            QMessageBox.warning(self, tr("nav.settings"), "\n".join(errors))
+            return
+        self.config_service.save(cfg)
+        self.load_from_config()
+        self.appearance_changed.emit()
+        self.settings_saved.emit()
+        QMessageBox.information(self, tr("nav.settings"),
+                                tr("settings.transfer_imported", applied=str(len(applied)), skipped=str(len(skipped))))
+
+    def _create_local_backup(self):
+        """Explicit user-selected folder and archive; never uploads data."""
+        from core.privacy.local_backup import create_backup
+        source = QFileDialog.getExistingDirectory(self, 'Lokalen Datenordner auswählen')
+        if not source:
+            return
+        destination, _ = QFileDialog.getSaveFileName(
+            self, 'Backup speichern', 'karrierekrake-backup.zip', 'ZIP-Archiv (*.zip)')
+        if not destination:
+            return
+        self._run_backup_operation(
+            lambda cancelled: create_backup(Path(source), Path(destination), cancelled=cancelled),
+            'Backup erstellt und überprüft.')
+
+    def _cancel_backup_operation(self):
+        worker = getattr(self, '_backup_worker', None)
+        if worker is not None:
+            worker.request_cancel()
+        self.local_backup_cancel_btn.setEnabled(False)
+
+    def _run_backup_operation(self, operation, message):
+        if getattr(self, '_backup_busy', False):
+            return
+        self._backup_busy = True
+        self.local_backup_cancel_btn.setEnabled(True)
+        self.local_backup_cancel_btn.show()
+        buttons = (self.local_backup_btn, self.local_backup_verify_btn, self.local_backup_restore_btn)
+        for button in buttons:
+            button.setEnabled(False)
+        def finish(value, failed=False):
+            self._backup_busy = False
+            self.local_backup_cancel_btn.hide()
+            for button in buttons:
+                button.setEnabled(True)
+            if isinstance(value, InterruptedError) or value is None:
+                QMessageBox.information(self, 'Lokales Backup', 'Vorgang abgebrochen. Kein neues Archiv oder Wiederherstellungsziel wurde übernommen.')
+            elif failed:
+                QMessageBox.warning(self, 'Backup fehlgeschlagen',
+                    'Vorgang fehlgeschlagen. Archiv, freien Speicher und Zugriffsrechte prüfen. '
+                    'Ein Wiederherstellungsziel muss leer sein.')
+            else:
+                QMessageBox.information(self, 'Lokales Backup', message)
+        worker = FunctionWorker(lambda: operation(worker.is_cancelled))
+        connect_queued(worker.finished, finish)
+        connect_queued(worker.failed, lambda error: finish(error, True))
+        self._backup_worker = worker
+        self._backup_thread = start_worker(worker)
+
+    def _verify_local_backup(self):
+        from core.privacy.local_backup import verify_backup
+        archive, _ = QFileDialog.getOpenFileName(self, 'Backup auswählen', '', 'ZIP-Archiv (*.zip)')
+        if archive:
+            self._run_backup_operation(lambda cancelled: verify_backup(Path(archive), cancelled=cancelled),
+                                       'Alle Dateien erfolgreich geprüft.')
+
+    def _restore_local_backup(self):
+        from core.privacy.local_backup import restore_to_empty_directory
+        archive, _ = QFileDialog.getOpenFileName(self, 'Backup auswählen', '', 'ZIP-Archiv (*.zip)')
+        if not archive:
+            return
+        destination = QFileDialog.getExistingDirectory(self, 'Leeren Wiederherstellungsordner auswählen')
+        if destination:
+            self._run_backup_operation(
+                lambda cancelled: restore_to_empty_directory(Path(archive), Path(destination), cancelled=cancelled),
+                'Backup in den gewählten Ordner wiederhergestellt. Aktive App-Daten wurden nicht ersetzt.')
+
+    def _cancel_privacy_export(self):
+        worker = getattr(self, '_privacy_export_worker', None)
+        if worker is not None:
+            worker.request_cancel()
+        self.privacy_export_cancel_btn.setEnabled(False)
+
+    def _privacy_export(self) -> None:
+        if not confirm_action(
+            self,
+            tr("privacy.tab"),
+            tr("privacy.export_confirm"),
+            confirm_text=tr("privacy.export_confirm_btn"),
+        ):
+            return
+        from PySide6.QtWidgets import QFileDialog
+
+        dest = QFileDialog.getExistingDirectory(self, tr("privacy.export"))
+        if not dest:
+            return
+        if getattr(self, '_privacy_export_busy', False):
+            return
+        service = self._privacy_life()
+        self._privacy_export_busy = True
+        self.privacy_export_btn.setEnabled(False)
+        self.privacy_export_cancel_btn.setEnabled(True)
+        self.privacy_export_cancel_btn.show()
+        def done(result):
+            self._privacy_export_busy = False
+            self.privacy_export_btn.setEnabled(True)
+            self.privacy_export_cancel_btn.hide()
+            if result is not None and getattr(result, 'ok', False):
+                QMessageBox.information(self, tr("privacy.tab"),
+                    f"{tr('privacy.export_done')}\n{result.path}")
+            else:
+                QMessageBox.warning(self, tr("privacy.tab"), tr("privacy.export_failed"))
+        worker = FunctionWorker(lambda: service.export_my_data(
+            Path(dest), user_confirmed_pii=True, include_document_bytes=False, cancelled=worker.is_cancelled))
+        connect_queued(worker.finished, done)
+        connect_queued(worker.failed, lambda error: done(None))
+        self._privacy_export_worker = worker
+        self._privacy_export_thread = start_worker(worker)
+
+    def _cancel_account_task(self) -> None:
+        worker = getattr(self, "_account_worker", None)
+        if worker is not None:
+            worker.request_cancel()
+        self.account_cancel_btn.setEnabled(False)
+
+    def _run_account_task(self, operation, success, cleanup=None) -> None:
+        if getattr(self, "_account_task_active", False):
+            return
+        self._account_task_active = True
+        self.account_cancel_btn.setEnabled(True)
+        self.account_cancel_btn.show()
+        controls = [self.privacy_connect_gmail_btn, self.privacy_connect_cal_btn,
+                    self.privacy_disconnect_btn]
+        for button in controls:
+            button.setEnabled(False)
+        self.mail_status.setText(tr("integrations.status.checking"))
+        self.calendar_status.setText(tr("integrations.status.checking"))
+
+        def done(value, error=False):
+            self._account_task_active = False
+            self.account_cancel_btn.hide()
+            for button in controls:
+                button.setEnabled(True)
+            try:
+                if error:
+                    from desktop.oauth_messages import message_for_account_error
+                    QMessageBox.warning(self, tr("privacy.tab"), message_for_account_error(value))
+                elif not worker.is_cancelled():
+                    success(value)
+            except Exception as exc:
+                from desktop.oauth_messages import message_for_account_error
+                QMessageBox.warning(self, tr("privacy.tab"), message_for_account_error(exc))
+            finally:
+                try:
+                    if cleanup is not None:
+                        cleanup()
+                finally:
+                    self._refresh_provider_status(self.config_service.load().settings)
+
+        worker = FunctionWorker(operation)
+        connect_queued(worker.finished, lambda value: done(value))
+        connect_queued(worker.failed, lambda error: done(error, True))
+        self._account_worker = worker
+        self._account_thread = start_worker(worker)
+
+    def _finish_google_connection(self, outcome, *, calendar_mode=None):
+        from desktop.oauth_messages import message_for_google_outcome
+        if outcome.service is not None and not outcome.denied_features:
+            cfg = self.config_service.load()
+            if calendar_mode is None:
+                cfg.settings.mail_provider = "google_gmail"
+            else:
+                cfg.settings.calendar_provider = "google_calendar"
+                cfg.settings.calendar_google_mode = calendar_mode
+                cfg.settings.calendar_freebusy_enabled = True
+            self.config_service.save(cfg)
+            QMessageBox.information(self, tr("privacy.tab"), tr("privacy.connect_ok"))
+        elif outcome.credentials is not None and outcome.denied_features:
+            QMessageBox.warning(self, tr("privacy.tab"), tr("privacy.connect_partial"))
+        else:
+            QMessageBox.warning(self, tr("privacy.tab"), message_for_google_outcome(outcome))
+
+    def _import_google_client(self) -> bool:
+        from PySide6.QtWidgets import QFileDialog
+        from integrations.google_oauth import load_client_config
+        from shutil import copyfile
+        selected, _ = QFileDialog.getOpenFileName(
+            self, "Google Desktop-OAuth-Client auswählen", "", "JSON (*.json)")
+        if not selected:
+            return False
+        kind, config = load_client_config(Path(selected))
+        if kind != "installed" or not config or not all(config.get(k) for k in ("client_id", "client_secret", "auth_uri", "token_uri")):
+            QMessageBox.warning(self, "Google-Anmeldung", "Bitte eine gültige Desktop-OAuth-Clientdatei auswählen. Web-Clients und Token-Dateien sind nicht geeignet.")
+            return False
+        destination = self.config_service.dirs["config"] / "google_desktop_client.json"
+        if Path(selected).resolve() != destination.resolve():
+            copyfile(selected, destination)
+        destination.chmod(0o600)
+        cfg = self.config_service.load()
+        cfg.settings.gmail_credentials_path = str(destination)
+        self.config_service.save(cfg)
+        return True
+
+    def _google_client_path(self):
+        cfg = self.config_service.load()
+        candidate = Path(cfg.settings.gmail_credentials_path)
+        if not candidate.is_file():
+            candidate = self.config_service.dirs["root"] / candidate
+        if candidate.is_file():
+            return candidate
+        from integrations.google_oauth import bundled_desktop_client_path
+        bundled = bundled_desktop_client_path()
+        if bundled.is_file():
+            return bundled
+        QMessageBox.information(self, "Google-Anmeldung einrichten", "Der Google-OAuth-Client fehlt. Wähle jetzt die Desktop-Client-JSON aus Google Cloud Console aus. Ohne gültige Client-ID kann Google keine Anmeldung starten.")
+        if not self._import_google_client():
+            return None
+        return Path(self.config_service.load().settings.gmail_credentials_path)
+
+    def _privacy_connect_gmail(self) -> None:
+        """Primary mail CTA is always the free, provider-neutral IMAP flow.
+
+        Direct Google OAuth remains a separate Premium preview and must never be
+        reached from the free connection button, regardless of combo state.
+        """
+        self._connect_free_mail()
+
+    def _connect_google_mail_later(self) -> None:
+        from core.commercial.features import PremiumFeature, require_premium
+        require_premium(PremiumFeature.GOOGLE_CONNECTION)
+        if str(self.mail_provider.currentData() or "") != "google_gmail":
+            QMessageBox.warning(
+                self, tr("privacy.tab"), tr("integrations.wrong_mail_provider")
+            )
+            return
+        if not confirm_action(
+            self,
+            tr("privacy.tab"),
+            tr("privacy.connect_gmail_confirm"),
+            confirm_text=tr("privacy.connect_confirm_btn"),
+        ):
+            return
+        from integrations.gmail_auth import authorize_gmail
+
+        app_cfg = self.config_service.load()
+        settings = app_cfg.settings
+        creds = self._google_client_path()
+        if creds is None:
+            return
+        self._run_account_task(lambda: authorize_gmail(
+            credentials_path=creds,
+            token_dir=self.config_service.dirs["config"],
+            interactive=True,
+            open_browser=True,
+            privacy_policy_url=getattr(settings, "oauth_privacy_policy_url", "") or "",
+            homepage_url=getattr(settings, "oauth_homepage_url", "") or "",
+            oauth_env=getattr(settings, "oauth_environment", None),
+            cancelled=lambda: self._account_worker.is_cancelled(),
+        ), self._finish_google_connection)
+
+    def _update_calendar_mode_visibility(self) -> None:
+        visible = self.calendar_provider.currentData() == "google_calendar"
+        for widget in (self.lbl_calendar_mode, self.calendar_google_mode, self.calendar_mode_rights):
+            widget.setVisible(visible)
+
+    def _update_calendar_mode_rights(self) -> None:
+        mode = str(self.calendar_google_mode.currentData() or "A").upper()
+        if mode == "B":
+            self.calendar_mode_rights.setText(tr("integrations.calendar.mode_b_rights"))
+        else:
+            self.calendar_mode_rights.setText(tr("integrations.calendar.mode_a_rights"))
+
+    def _open_provider_setup_guide(self) -> None:
+        """Open an offline HTML guide; no network or embedded browser required."""
+        from tempfile import gettempdir
+        from pathlib import Path
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from integrations.provider_setup_guides import guide_html
+        provider = str(self.setup_provider.currentData() or "other")
+        target = Path(gettempdir()) / ("karrierekrake-setup-" + provider + ".html")
+        target.write_text(guide_html(provider), encoding="utf-8")
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(target)))
+
+    def _privacy_connect_calendar(self) -> None:
+        """Free calendar: CalDAV or an explicit ICS import/subscription choice."""
+        selected = self.calendar_provider.currentData()
+        if selected == "generic_caldav":
+            self._connect_icloud()
+            return
+        from desktop.widgets.connection_guide import CalendarConnectDialog
+
+        dialog = CalendarConnectDialog(self)
+        if dialog.exec() != QDialog.DialogCode.Accepted:
+            return
+        if dialog.choice == "link":
+            self._connect_private_ics_feed()
+        else:
+            self._import_calendar_snapshot()
+
+    def _connect_google_calendar_later(self) -> None:
+        from core.commercial.features import PremiumFeature, require_premium
+        require_premium(PremiumFeature.GOOGLE_CONNECTION)
+        if str(self.calendar_provider.currentData() or "") != "google_calendar":
+            QMessageBox.warning(
+                self, tr("privacy.tab"), tr("integrations.wrong_calendar_provider")
+            )
+            return
+        mode = str(self.calendar_google_mode.currentData() or "A").upper()
+        if mode not in {"A", "B"}:
+            mode = "A"
+        rights_key = (
+            "integrations.calendar.mode_b_confirm"
+            if mode == "B"
+            else "integrations.calendar.mode_a_confirm"
+        )
+        if not confirm_action(
+            self,
+            tr("privacy.tab"),
+            tr(rights_key),
+            confirm_text=tr("privacy.connect_confirm_btn"),
+        ):
+            return
+        from integrations.gmail_auth import authorize_calendar_mode
+
+        app_cfg = self.config_service.load()
+        settings = app_cfg.settings
+        settings.calendar_google_mode = mode
+        creds = self._google_client_path()
+        if creds is None:
+            return
+        self._run_account_task(lambda: authorize_calendar_mode(
+            mode,
+            credentials_path=creds,
+            token_dir=self.config_service.dirs["config"],
+            interactive=True,
+            open_browser=True,
+            privacy_policy_url=getattr(settings, "oauth_privacy_policy_url", "") or "",
+            homepage_url=getattr(settings, "oauth_homepage_url", "") or "",
+            oauth_env=getattr(settings, "oauth_environment", None),
+            cancelled=lambda: self._account_worker.is_cancelled(),
+        ), lambda outcome: self._finish_google_connection(outcome, calendar_mode=mode))
+
+    def _premium(self, feature):
+        from core.commercial.features import PremiumFeature
+        from desktop.widgets.premium import show_premium
+        show_premium(self, PremiumFeature(feature))
+
+    def _privacy_disconnect_selected(self) -> None:
+        """Disconnect only the currently selected provider — no cross-provider wipe."""
+        mail = str(self.mail_provider.currentData() or "none")
+        cal = str(self.calendar_provider.currentData() or "none")
+        if not confirm_action(
+            self,
+            tr("privacy.tab"),
+            tr("integrations.disconnect_confirm"),
+            confirm_text=tr("integrations.disconnect_confirm_btn"),
+            destructive=True,
+        ):
+            return
+        token_dir = self.config_service.dirs["config"]
+        errors: list[str] = []
+        try:
+            from integrations.mail.registry import resolve_mail_adapter
+            from integrations.calendar.registry import resolve_calendar_adapter
+
+            if mail != "none":
+                adapter = resolve_mail_adapter(mail, token_dir=token_dir, allow_none=False)
+                if adapter is not None:
+                    adapter.disconnect(revoke_remote=True)
+            if cal != "none":
+                cadapter = resolve_calendar_adapter(cal, token_dir=token_dir, settings=self.config_service.load().settings, allow_none=False)
+                if cadapter is not None:
+                    cadapter.disconnect(revoke_remote=True)
+        except Exception as exc:  # noqa: BLE001
+            errors.append(type(exc).__name__)
+        if errors:
+            QMessageBox.warning(self, tr("privacy.tab"), tr("privacy.action_failed"))
+        else:
+            QMessageBox.information(self, tr("privacy.tab"), tr("privacy.action_ok"))
+
+    def _privacy_disconnect_google(self) -> None:
+        self._privacy_report(self._privacy_life().disconnect_google(revoke_remote=True))
+
+    def _refresh_provider_status(self, settings) -> None:
+        """Network probes must not stall opening or saving Settings."""
+        if getattr(self, "_provider_probe_active", False):
+            self._provider_probe_pending = deepcopy(settings)
+            return
+        self._provider_probe_active = True
+        snapshot = deepcopy(settings)
+        token_dir = self.config_service.dirs["config"]
+        self.mail_status.setText(tr("integrations.status.checking"))
+        self.calendar_status.setText(tr("integrations.status.checking"))
+
+        def probe():
+            from integrations.mail.registry import resolve_mail_adapter
+            from integrations.calendar.registry import resolve_calendar_adapter
+            values = []
+            for resolver, field in ((resolve_mail_adapter, "mail_provider"),
+                                    (resolve_calendar_adapter, "calendar_provider")):
+                try:
+                    adapter = resolver(getattr(snapshot, field, "none"), token_dir=token_dir,
+                                       settings=snapshot, allow_none=True)
+                    values.append("none" if adapter is None else
+                                  "connected" if adapter.is_connected() else "not_connected")
+                except Exception:
+                    values.append("unknown")
+            return values
+
+        def finish(values):
+            self._provider_probe_active = False
+            pending = getattr(self, "_provider_probe_pending", None)
+            self._provider_probe_pending = None
+            if pending is not None:
+                self._refresh_provider_status(pending)
+                return
+            for label, value in zip((self.mail_status, self.calendar_status), values):
+                label.setText(tr("integrations.status." + value))
+            if snapshot.calendar_provider == "local_ics":
+                if values[1] == "connected":
+                    from datetime import datetime
+                    from pathlib import Path
+                    stamp = datetime.fromtimestamp(Path(snapshot.local_calendar_path).stat().st_mtime)
+                    self.calendar_status.setText("Kalenderkopie · Stand " + stamp.strftime("%d.%m.%Y %H:%M") + " · keine Live-Synchronisierung")
+                else:
+                    self.calendar_status.setText("Kalenderkopie fehlt oder ist veraltet. Bitte neu importieren.")
+
+        worker = FunctionWorker(probe)
+        connect_queued(worker.finished, finish)
+        connect_queued(worker.failed, lambda _: finish(["unknown", "unknown"]))
+        self._provider_probe_worker = worker
+        self._provider_probe_thread = start_worker(worker)
+
+    def _confirm_delete(self, body_key: str) -> bool:
+        return confirm_action(
+            self,
+            tr("privacy.tab"),
+            tr(body_key),
+            confirm_text=tr("privacy.delete_confirm_btn"),
+            destructive=True,
+        )
+
+    def _privacy_delete_mail(self) -> None:
+        if self._confirm_delete("privacy.delete_mail_confirm"):
+            self._privacy_report(self._privacy_life().delete_mail_cache())
+
+    def _privacy_delete_calendar(self) -> None:
+        if self._confirm_delete("privacy.delete_calendar_confirm"):
+            self._privacy_report(self._privacy_life().delete_calendar_cache())
+
+    def _privacy_delete_logs(self) -> None:
+        if self._confirm_delete("privacy.delete_logs_confirm"):
+            self._privacy_report(self._privacy_life().delete_logs())
+
+    def _privacy_delete_all(self) -> None:
+        if not confirm_action(
+            self,
+            tr("privacy.tab"),
+            tr("profile.reset_confirm_wipe_all"),
+            confirm_text=tr("privacy.delete_all_confirm_btn"),
+            destructive=True,
+        ):
+            return
+        result = self.config_service.delete_all_local_data()
+        if result.get("ok") and result.get("verified"):
+            QMessageBox.information(self, tr("privacy.tab"), tr("profile.reset_wipe_done"))
+        else:
+            QMessageBox.warning(self, tr("privacy.tab"), tr("profile.reset_wipe_failed"))

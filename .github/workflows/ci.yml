@@ -1,0 +1,682 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  # New PR heads supersede older checks; release/main runs retain their evidence.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  privacy:
+    name: privacy
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-ci.txt
+            requirements-dev.txt
+            constraints-runtime.txt
+      - name: Install verified security-only CPython patch runtime
+        if: runner.os != 'Linux'
+        run: python scripts/prepare_ci_python.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-compile -c constraints-runtime.txt -r requirements-ci.txt
+      - name: Privacy scan
+        run: python scripts/privacy_scan.py
+      - name: Production content gate (unit)
+        run: python -m pytest -q tests/test_production_content_gate.py tests/test_privacy_scan.py
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_STEP_SUMMARY "## privacy`nPASS (+ production content gate + privacy_scan unit)"
+
+  # The required check stays `unit-tests` (aggregator below). Shards are not
+  # required checks; the aggregator is green only when every shard passed and
+  # the JUnit node-id union equals the collected set (no missing, no duplicate
+  # id). Keep matrix, --splits, and --expect-shards on the same count
+  # (scripts/unit_test_shards.py DEFAULT_SPLITS).
+  unit-tests-shard:
+    name: unit-tests-shard
+    runs-on: windows-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [1, 2, 3, 4, 5, 6]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-ci.txt
+            requirements-dev.txt
+            constraints-runtime.txt
+      - name: Install verified security-only CPython patch runtime
+        if: runner.os != 'Linux'
+        run: python scripts/prepare_ci_python.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-compile -c constraints-runtime.txt -r requirements-ci.txt
+      - name: Collect the same suite the shards run
+        if: matrix.group == 1
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+        run: python scripts/unit_test_shards.py collect --output "${{ runner.temp }}/collected-unit-tests.txt"
+      - name: Upload collection
+        if: always() && matrix.group == 1
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-collected
+          path: ${{ runner.temp }}/collected-unit-tests.txt
+          if-no-files-found: error
+      - name: Pytest shard (exclude network + cv corpus dedicated job)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+          PYTHONUNBUFFERED: "1"
+        run: >
+          python scripts/unit_test_shards.py run
+          --splits 6
+          --group ${{ matrix.group }}
+          --junitxml junit-unit-${{ matrix.group }}.xml
+      - name: Upload junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-junit-${{ matrix.group }}
+          path: junit-unit-${{ matrix.group }}.xml
+          if-no-files-found: error
+
+  unit-tests:
+    name: unit-tests
+    needs: [unit-tests-shard, linux-pytest]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Self-check node-id gate
+        run: python3 scripts/unit_test_shards.py self-check
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: unit-tests-*
+          path: unit-test-artifacts
+      - name: Compare collected node ids with shard JUnit
+        env:
+          SHARD_RESULT: ${{ needs.unit-tests-shard.result }}
+          COLLECT_RESULT: ${{ needs.unit-tests-shard.result }}
+        run: >
+          python3 scripts/unit_test_shards.py check
+          --artifacts unit-test-artifacts
+          --expect-shards 6
+          --shard-result "$SHARD_RESULT"
+          --collect-result "$COLLECT_RESULT"
+      - name: Export verified timings for the next rebalance
+        run: >
+          python3 scripts/unit_test_shards.py build-durations
+          --collected unit-test-artifacts/unit-tests-collected/collected-unit-tests.txt
+          --junit unit-test-artifacts/unit-tests-junit-*/*.xml
+          --output unit-test-durations.json
+      - name: Upload verified timings
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-durations
+          path: unit-test-durations.json
+          if-no-files-found: error
+      - name: Upload junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-unit
+          path: unit-test-artifacts/**/*.xml
+          if-no-files-found: ignore
+      - name: Require linux-pytest success
+        if: always()
+        env:
+          LINUX_RESULT: ${{ needs.linux-pytest.result }}
+        run: |
+          if [ "$LINUX_RESULT" != "success" ]; then
+            echo "::error::linux-pytest result is '$LINUX_RESULT' (expected success)"
+            exit 1
+          fi
+
+  cv-regression:
+    name: cv-regression
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-ci.txt
+            requirements-dev.txt
+            constraints-runtime.txt
+      - name: Install verified security-only CPython patch runtime
+        if: runner.os != 'Linux'
+        run: python scripts/prepare_ci_python.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-compile -c constraints-runtime.txt -r requirements-ci.txt
+      - uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/kk-cv-model-cache
+          key: kk-cv-gguf-${{ hashFiles('core/cv_llm_runtime.py') }}
+          restore-keys: kk-cv-gguf-
+      - name: Provision verified production model for real corpus checks
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          KARRIEREKRAKE_MODELS_DIR: ${{ runner.temp }}/kk-cv-model-cache
+        run: python scripts/prepare_bundled_cv_model.py --allow-download
+      - name: CV corpus pytest (record slowest cases)
+        run: python -m pytest -q --capture=tee-sys --junitxml=cv-corpus-junit.xml --durations=20 tests/test_cv_corpus.py tests/test_cv_parser_generic.py tests/test_cv_sections.py tests/test_cv_sollwerte_corpus.py tests/test_p0_profile_cv_dialogs.py tests/test_cv_title_before_date.py | Tee-Object -FilePath cv_corpus_matrix.txt
+      - name: Upload corpus matrix
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cv-corpus-matrix
+          path: |
+            cv_corpus_matrix.txt
+            cv-corpus-junit.xml
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_STEP_SUMMARY "## cv-regression`n"
+          if (Test-Path cv_corpus_matrix.txt) { Get-Content cv_corpus_matrix.txt | Add-Content $env:GITHUB_STEP_SUMMARY }
+          if (Test-Path cv_sollwerte_matrix.txt) {
+            Add-Content $env:GITHUB_STEP_SUMMARY "`n### Sollwerte`n"
+            Get-Content cv_sollwerte_matrix.txt | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
+  database-migration-tests:
+    name: database-migration-tests
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-ci.txt
+            requirements-dev.txt
+            constraints-runtime.txt
+      - name: Install verified security-only CPython patch runtime
+        if: runner.os != 'Linux'
+        run: python scripts/prepare_ci_python.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-compile -c constraints-runtime.txt -r requirements-ci.txt
+      - name: DB / reset / dashboard tests
+        run: >
+          python -m pytest -q
+          tests/test_database.py
+          tests/test_db_migration_run_id.py
+          tests/test_dashboard_run_id.py
+          tests/test_reset_empty_profile.py
+          tests/test_windows_paths.py
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: Add-Content $env:GITHUB_STEP_SUMMARY "## database-migration-tests`nPASS (if job green)"
+
+  static-smoke:
+    name: static-smoke
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-ci.txt
+            requirements-dev.txt
+            constraints-runtime.txt
+      - name: Install verified security-only CPython patch runtime
+        if: runner.os != 'Linux'
+        run: python scripts/prepare_ci_python.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-compile -c constraints-runtime.txt -r requirements-ci.txt
+      - name: Lint (ruff - syntax errors, unused and undefined names)
+        run: |
+          python -m pip install ruff==0.17.5
+          python -m ruff check . --output-format github
+      - name: Salary / profile / pause / pipeline / dry-run / sources / search / deletion
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >
+          python -m pytest -q --durations=10
+          tests/test_salary.py
+          tests/test_profile_canonical.py
+          tests/test_pause_resume.py
+          tests/test_pipeline_integration.py
+          tests/test_dry_run_all_adapters.py
+          tests/test_source_contracts.py
+          tests/test_source_health_ats.py
+          tests/test_apply_preview.py
+          tests/test_location.py
+          tests/test_shutdown.py
+          tests/test_maybe_submit.py
+          tests/test_captcha_stop.py
+          tests/test_hard_filter.py
+          tests/test_hard_filter_remote_hybrid_flags.py
+          tests/test_intent_filter.py
+          tests/test_search_adapter.py
+          tests/test_search_intent.py
+          tests/test_search_preferences.py
+          tests/test_empty_search_no_demo_defaults.py
+          tests/test_force_submit_respects_dry_run.py
+          tests/test_realworld_cv_and_search_guards.py
+          tests/test_local_data_security.py
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: Add-Content $env:GITHUB_STEP_SUMMARY "## static-smoke`nPASS (if job green)"
+
+  lifecycle-e2e-benchmark:
+    name: lifecycle-e2e-benchmark
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-ci.txt
+            requirements-dev.txt
+            constraints-runtime.txt
+      - name: Install verified security-only CPython patch runtime
+        if: runner.os != 'Linux'
+        run: python scripts/prepare_ci_python.py
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-compile -c constraints-runtime.txt -r requirements-ci.txt
+      - name: Lifecycle E2E factory + matrix
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >
+          python -m pytest -q
+          tests/test_lifecycle_e2e_factory.py
+          tests/test_lifecycle_e2e_matrix.py
+          --junitxml=junit-lifecycle-e2e.xml
+      - name: Publish deterministic benchmark report
+        shell: pwsh
+        run: |
+          python scripts/run_lifecycle_e2e_benchmark.py
+          if (!(Test-Path artifacts/lifecycle_e2e_report.json)) { throw "missing report" }
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lifecycle-e2e-report
+          path: |
+            artifacts/lifecycle_e2e_report.json
+            junit-lifecycle-e2e.xml
+          if-no-files-found: ignore
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_STEP_SUMMARY "## lifecycle-e2e-benchmark`n"
+          if (Test-Path artifacts/lifecycle_e2e_report.json) {
+            Get-Content artifacts/lifecycle_e2e_report.json | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
+  security:
+    name: security
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-ci.txt
+            requirements-dev.txt
+            constraints-runtime.txt
+      - name: Install verified security-only CPython patch runtime
+        if: runner.os != 'Linux'
+        run: python scripts/prepare_ci_python.py
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # Runtime surface only for dependency audit (no dspy/dev-only trees).
+          python -m pip install -c constraints-runtime.txt -r requirements-runtime.txt
+          python -m pip install -c constraints-runtime.txt pytest pip-audit bandit
+      - name: Install gitleaks
+        shell: pwsh
+        run: |
+          $ver = "8.30.1"
+          $url = "https://github.com/gitleaks/gitleaks/releases/download/v$ver/gitleaks_${ver}_windows_x64.zip"
+          $zip = "$env:RUNNER_TEMP/gitleaks.zip"
+          Invoke-WebRequest -Uri $url -OutFile $zip
+          if ((Get-Item $zip).Length -lt 10000) { Write-Error "gitleaks download too small / HTML error page"; exit 1 }
+          Expand-Archive -Path $zip -DestinationPath "$env:RUNNER_TEMP/gitleaks" -Force
+          Copy-Item "$env:RUNNER_TEMP/gitleaks/gitleaks.exe" "$env:RUNNER_TEMP/gitleaks.exe"
+          echo "$env:RUNNER_TEMP" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Install osv-scanner
+        shell: pwsh
+        run: |
+          # Asset names omit the version (osv-scanner v2+).
+          $ver = "2.6.0"
+          $url = "https://github.com/google/osv-scanner/releases/download/v$ver/osv-scanner_windows_amd64.exe"
+          $out = "$env:RUNNER_TEMP/osv-scanner.exe"
+          Invoke-WebRequest -Uri $url -OutFile $out
+          if ((Get-Item $out).Length -lt 1000000) { Write-Error "osv-scanner download too small / HTML error page"; exit 1 }
+          echo "$env:RUNNER_TEMP" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
+      - name: Privacy scan
+        run: python scripts/privacy_scan.py
+      - name: Freeze installed runtime (OSV input)
+        run: |
+          # Windows pwsh: mkdir -p is invalid; match #62 New-Item fix
+          New-Item -ItemType Directory -Force -Path artifacts | Out-Null
+          python -m pip freeze > artifacts/runtime-freeze.txt
+          Get-Content artifacts/runtime-freeze.txt | Select-Object -First 20
+        shell: pwsh
+      - name: pip-audit (dependency advisories)
+        id: pip_audit
+        run: python scripts/run_security_scans.py --only pip-audit
+      - name: Bandit SAST (gate from medium severity)
+        id: bandit
+        if: success() || failure()
+        run: python scripts/run_security_scans.py --only bandit
+      - name: Gitleaks secret scan
+        id: gitleaks
+        if: success() || failure()
+        run: python scripts/run_security_scans.py --only gitleaks
+      - name: OSV scanner
+        id: osv
+        if: success() || failure()
+        run: python scripts/run_security_scans.py --only osv
+      - name: Security pytest (injection / malformed corpus)
+        id: sec_pytest
+        if: success() || failure()
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: >
+          python -m pytest -q
+          tests/test_untrusted_content_security.py
+          --junitxml=junit-security.xml
+      - name: Fail if any security gate failed
+        if: always()
+        shell: pwsh
+        run: |
+          $map = @{
+            pip_audit = "${{ steps.pip_audit.outcome }}"
+            bandit = "${{ steps.bandit.outcome }}"
+            gitleaks = "${{ steps.gitleaks.outcome }}"
+            osv = "${{ steps.osv.outcome }}"
+            sec_pytest = "${{ steps.sec_pytest.outcome }}"
+          }
+          $failed = @($map.GetEnumerator() | Where-Object { $_.Value -eq "failure" } | ForEach-Object { $_.Key })
+          if ($failed.Count -gt 0) {
+            Write-Error ("Security gates failed: " + ($failed -join ", "))
+            exit 1
+          }
+          Write-Host "All security gates passed"
+      - name: Upload security artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-scan
+          path: |
+            artifacts/pip-audit.json
+            artifacts/gitleaks.json
+            artifacts/osv-scanner.json
+            artifacts/security-scan-summary.json
+            artifacts/runtime-freeze.txt
+            junit-security.xml
+          if-no-files-found: ignore
+      - name: Summary
+        if: always()
+        shell: pwsh
+        run: |
+          Add-Content $env:GITHUB_STEP_SUMMARY "## security`n"
+          Add-Content $env:GITHUB_STEP_SUMMARY "pip-audit + OSV + Bandit + Gitleaks + privacy + security pytest"
+          if (Test-Path artifacts/security-scan-summary.json) {
+            Get-Content artifacts/security-scan-summary.json | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
+  # Linux coverage for the native scheduler (systemd/launchd units), model
+  # download and device/model setup paths. Windows jobs above stay unchanged.
+  linux-pytest:
+    name: linux-pytest
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Full history: tests/test_hr_approval_ledger.py checks that every
+          # HR_APPROVAL verdict_commit is an ancestor of HEAD (fails closed
+          # on a shallow checkout).
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-ci.txt
+            requirements-dev.txt
+            constraints-runtime.txt
+      - name: Linux Qt offscreen runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libgl1 libopengl0 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libfontconfig1 libdbus-1-3
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-compile -c constraints-runtime.txt -r requirements-ci.txt
+      - name: Schedule, model download and setup tests (isolated HOME, no real scheduler)
+        env:
+          QT_QPA_PLATFORM: offscreen
+          PYTHONUTF8: "1"
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          export HOME="$RUNNER_TEMP/kk-home"
+          export XDG_CONFIG_HOME="$RUNNER_TEMP/kk-xdg-config"
+          mkdir -p "$HOME" "$XDG_CONFIG_HOME"
+          # Any real scheduler call from a test is a bug: shadow the binaries
+          # with stubs that record the call and fail. The call log is checked in
+          # the separate "Scheduler guard log" step, which also runs when
+          # pytest fails.
+          guard="$RUNNER_TEMP/kk-scheduler-guard"
+          mkdir -p "$guard"
+          for tool in systemctl launchctl schtasks; do
+            printf '#!/bin/sh\necho "%s $*" >> "%s/calls.log"\nexit 1\n' "$tool" "$guard" > "$guard/$tool"
+            chmod +x "$guard/$tool"
+          done
+          export PATH="$guard:$PATH"
+          # Explicit file list (no globs): a missing file fails the job.
+          tests=(
+            tests/test_native_schedule.py
+            tests/test_schedule_once_entrypoint.py
+            tests/test_pause_resume.py
+            tests/test_schedule_service_linux.py
+            tests/test_ci_real_systemd_schedule_check.py
+            tests/test_adversarial_final_fix.py
+            tests/test_native_model_download.py
+            tests/test_model_download_logs.py
+            tests/test_model_download_recovery.py
+            tests/test_model_download_tls.py
+            tests/test_model_download_resume_interrupted.py
+            tests/test_model_download_restart_truncate.py
+            tests/test_model_download_evidence_logs.py
+            tests/test_model_download_progress_budget.py
+            tests/test_device_model_setup.py
+            tests/test_setup_model_source_audit.py
+            tests/test_native_upgrade_baseline.py
+            tests/test_setup_recovery.py
+            tests/test_provider_setup_guides.py
+            tests/test_search_transport.py
+            tests/test_search_offline_fixture_pipeline.py
+            tests/test_frozen_search_deps_selfcheck.py
+            tests/test_network_target_reconciliation.py
+            tests/test_setup_thresholds.py
+            tests/test_device_check.py
+            tests/test_setup_fits_parity.py
+            tests/test_device_report_wording.py
+            tests/test_model_panel_ram_parity.py
+            tests/test_model_setup_error_codes.py
+            tests/test_model_setup_on_thresholds.py
+            tests/test_model_setup_ux.py
+            tests/test_model_setup_low_free_ram_note.py
+            tests/test_model_setup_no_silent_install.py
+            tests/test_model_setup_locked_entries.py
+            tests/test_cover_guard_salutation_gender_native.py
+            tests/test_cover_guard_confirmation_ui.py
+            tests/test_t0110_synthetic_mail_calendar.py
+            tests/test_t0110_no_network_send.py
+            tests/test_model_setup_lock_reason_visible.py
+            tests/test_model_setup_wide_font_640.py
+            tests/test_license_evidence_pins.py
+            tests/test_linux_pyexpat_bundled.py
+            tests/test_setup_hr_approval.py
+            tests/test_hr_approval_ledger.py
+            tests/test_native_download_hr_gate.py
+          )
+          missing=0
+          for f in "${tests[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "::error::listed test file not found: $f"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          python -m pytest -q -rs "${tests[@]}" --junitxml=junit-linux-pytest.xml
+      - name: Scheduler guard log
+        if: always()
+        run: |
+          log="$RUNNER_TEMP/kk-scheduler-guard/calls.log"
+          if [ -s "$log" ]; then
+            echo "::error::tests invoked a real scheduler binary"
+            cat "$log"
+            exit 1
+          fi
+          echo "scheduler guard: no systemctl/launchctl/schtasks calls recorded ($log)"
+      - name: Upload junit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-linux-pytest
+          path: junit-linux-pytest.xml
+          if-no-files-found: ignore
+      - name: Summary
+        if: always()
+        run: echo "## linux-pytest (ubuntu, schedule + model download + setup)" >> "$GITHUB_STEP_SUMMARY"
+
+  # Real `systemctl --user` check for the native Linux scheduler (T04.08
+  # evidence candidate). Separate job; touches only karrierekrake-autorun.*
+  # units, the scheduled command is the no-op /bin/true.
+  linux-real-systemd:
+    name: linux-real-systemd
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ runner.os == 'Linux' && '3.12.15' || '3.12' }}
+          cache: pip
+          cache-dependency-path: |
+            requirements-runtime.txt
+            requirements-ci.txt
+            requirements-dev.txt
+            constraints-runtime.txt
+      # Same dependency base as linux-pytest / the Windows test jobs.
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install --no-compile -c constraints-runtime.txt -r requirements-ci.txt
+      - name: Start the user systemd manager (linger)
+        run: |
+          set -euo pipefail
+          sudo loginctl enable-linger "$USER"
+          runtime_dir="/run/user/$(id -u)"
+          export XDG_RUNTIME_DIR="$runtime_dir"
+          export DBUS_SESSION_BUS_ADDRESS="unix:path=$runtime_dir/bus"
+          up=0
+          for _ in $(seq 1 30); do
+            if systemctl --user show-environment >/dev/null 2>&1; then
+              up=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$up" -ne 1 ]; then
+            echo "::error::systemctl --user cannot reach the user manager after 30 s (XDG_RUNTIME_DIR=$runtime_dir)"
+            set +e  # diagnostics only; the step fails below in any case
+            loginctl show-user "$USER"
+            ls -la /run/user
+            systemctl status "user@$(id -u).service" --no-pager
+            exit 1
+          fi
+          systemctl --user --version
+          echo "XDG_RUNTIME_DIR=$runtime_dir" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime_dir/bus" >> "$GITHUB_ENV"
+      # The script first gates on `systemctl --user is-system-running`
+      # (running, or degraded without failed karrierekrake units; else red),
+      # then installs, pauses and removes in on_login and once_daily mode and
+      # fails if any karrierekrake unit, file or *.wants symlink remains.
+      - name: ScheduleService install + pause + remove() against real systemd (karrierekrake units only)
+        env:
+          KK_REAL_SYSTEMD_CHECK: "1"
+          PYTHONUTF8: "1"
+          PYTHONUNBUFFERED: "1"
+        run: |
+          set -euo pipefail
+          unset XDG_CONFIG_HOME
+          python scripts/ci_real_systemd_schedule_check.py
+      - name: Karrierekrake units after the check
+        if: always()
+        run: |
+          set +e  # diagnostics only; pass/fail is decided by the check step
+          ls -laR "$HOME/.config/systemd/user"
+          systemctl --user --no-pager list-unit-files 'karrierekrake*'
+          systemctl --user --no-pager list-units --all 'karrierekrake*'
+          exit 0
+      - name: Summary
+        if: always()
+        run: echo "## linux-real-systemd (ubuntu, systemctl --user, karrierekrake units only)" >> "$GITHUB_STEP_SUMMARY"

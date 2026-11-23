@@ -1,0 +1,317 @@
+"""Exercise production model wiring, evidence checks and late UI responses."""
+import json
+from types import SimpleNamespace as NS
+import pytest
+from core.config import empty_app_config, ExperienceEntry, SourcedText
+from core.models import Job
+from core.cover_quality import rewrite_cover_letter, CoverRewrite
+
+
+@pytest.fixture
+def applicant():
+    cfg = empty_app_config()
+    cfg.application.first_name = "Mara"
+    cfg.application.last_name = "König"
+    cfg.profile.qualifications.skills = [SourcedText(value="SAP Business One", source="manual")]
+    cfg.profile.qualifications.work_experience = [ExperienceEntry(
+        title="Teamkoordinatorin Kundenservice", company="Westfalen Service GmbH",
+        start_date="2022", end_date="heute", source="manual",
+        responsibilities=["Bearbeitung von Kundenanfragen", "Koordination von Kundenserviceprozessen"],
+    )]
+    job = Job(id="quality", source="indeed", title="Mitarbeiter Kundenservice",
+              company="Westnetz", description="Kundenservice: Bearbeitung von Kundenanfragen und Koordination von Kundenserviceprozessen. SAP Business One ist erwünscht.")
+    return job, cfg
+
+
+GOOD = '''Sehr geehrte Damen und Herren,
+
+die Position Mitarbeiter Kundenservice bei Westnetz bietet mir die Möglichkeit, meine Erfahrung aus dem Kundenservice in Ihre ausgeschriebenen Aufgaben einzubringen. Die Bearbeitung von Kundenanfragen und die Koordination von Kundenserviceprozessen bilden dabei konkrete Anknüpfungspunkte zu meiner bisherigen Tätigkeit.
+
+Bei der Westfalen Service GmbH arbeite ich seit 2022 als Teamkoordinatorin Kundenservice. Zu meinen Aufgaben gehören die Bearbeitung von Kundenanfragen und die Koordination von Kundenserviceprozessen. Diese Erfahrung möchte ich für die entsprechenden Aufgaben bei Westnetz einsetzen und dabei die Abläufe Ihres Unternehmens kennenlernen.
+
+Mit SAP Business One habe ich praktische Erfahrung. Damit bringe ich Kenntnisse in der von Ihnen genannten Software mit. Erfahrung in anderen SAP-Produkten oder im Zählerwesen leite ich daraus nicht ab.
+
+Gerne erläutere ich Ihnen im persönlichen Gespräch, wie meine bisherige Erfahrung zu den Anforderungen Ihrer Stelle passt.
+
+Mit freundlichen Grüßen
+Mara König'''
+
+
+def install_model(monkeypatch, body):
+    from pathlib import Path
+    monkeypatch.setattr("core.cv_llm_runtime.resolve_cv_model_path", lambda: Path("test.gguf"))
+    calls = []
+    def generate(messages, **kwargs):
+        calls.append(messages)
+        return json.dumps(dict(body=body, anchors_used=[], invented_flag=False, confidence="medium"))
+    monkeypatch.setattr("core.cv_llm_runtime.chat_completion_inprocess", generate)
+    return calls
+
+
+def test_real_grounding_and_reference_checks_accept_relevant_letter(applicant, monkeypatch):
+    calls = install_model(monkeypatch, GOOD)
+    result = rewrite_cover_letter(*applicant)
+    assert result.ok, result.reason
+    assert result.text.strip() == GOOD.strip()
+    assert len(calls) == 1
+    assert "UNTRUSTED" in calls[0][1]["content"]
+    assert "required_profile_references" in calls[0][1]["content"]
+    assert "required_task_phrases" in calls[0][1]["content"]
+
+
+def test_writer_uses_existing_contract_parser_for_string_anchors(applicant, monkeypatch):
+    install_model(monkeypatch, GOOD)
+    monkeypatch.setattr("core.cv_llm_runtime.chat_completion_inprocess", lambda *a, **kw:
+        json.dumps(dict(body=GOOD, anchors_used=["SAP Business One"],
+                        invented_flag=False, confidence=" MEDIUM ")))
+    assert rewrite_cover_letter(*applicant).ok
+
+
+def test_writer_reports_invalid_contract_without_leaking_output(applicant, monkeypatch):
+    install_model(monkeypatch, GOOD)
+    monkeypatch.setattr("core.cv_llm_runtime.chat_completion_inprocess", lambda *a, **kw:
+        "private invalid model response")
+    result = rewrite_cover_letter(*applicant)
+    assert not result.ok
+    assert result.issues == ("invalid_writing_contract",)
+
+
+def test_writer_reports_exception_type_without_private_message(applicant, monkeypatch):
+    install_model(monkeypatch, GOOD)
+    def fail(*a, **kw):
+        raise RuntimeError("private CV text")
+    monkeypatch.setattr("core.cv_llm_runtime.chat_completion_inprocess", fail)
+    result = rewrite_cover_letter(*applicant)
+    assert result.issues == ("writer_exception_RuntimeError",)
+
+
+@pytest.mark.parametrize("body", [GOOD.replace("Westnetz", "Wrong Company"), GOOD.replace("SAP Business One", "Java"), "Hiermit bewerbe ich mich. " + GOOD, GOOD.replace("Zu meinen Aufgaben gehören", "Ich habe ein abgeschlossenes Studium in Elektrotechnik. Zu meinen Aufgaben gehören")])
+def test_unusable_model_output_never_replaces_seed(applicant, monkeypatch, body):
+    calls = install_model(monkeypatch, body)
+    result = rewrite_cover_letter(*applicant)
+    assert not result.ok
+    assert result.text == ""
+    assert len(calls) == 2
+
+
+INVENTED_QUALITIES = "Dabei konnte ich die Zufriedenheit meiner Kunden um 30 Prozent steigern."
+
+
+def test_a_sentence_of_invented_qualities_is_removed_instead_of_writing_a_new_letter(applicant, monkeypatch):
+    draft = GOOD.replace("Diese Erfahrung möchte ich", INVENTED_QUALITIES + " Diese Erfahrung möchte ich")
+    calls = install_model(monkeypatch, draft)
+    result = rewrite_cover_letter(*applicant)
+    assert result.ok, result.issues
+    assert len(calls) == 1                      # no second letter from the model
+    assert result.text.strip() == GOOD.strip()  # the same letter without that sentence, nothing added
+
+
+def test_removing_sentences_never_rescues_a_letter_without_its_references(applicant, monkeypatch):
+    draft = GOOD.replace("SAP Business One", "Java").replace(
+        "Diese Erfahrung möchte ich", INVENTED_QUALITIES + " Diese Erfahrung möchte ich")
+    calls = install_model(monkeypatch, draft)
+    result = rewrite_cover_letter(*applicant)
+    assert not result.ok and result.text == "" and len(calls) == 2
+
+
+@pytest.mark.parametrize("invented", [
+    "Mit Java habe ich praktische Erfahrung.",
+    "Außerdem verfüge ich über sehr gute Kenntnisse in Python und SQL.",
+    "Ich beherrsche Salesforce und Zendesk sicher.",
+    "Zudem habe ich Erfahrung im Projektmanagement nach Scrum.",
+    "Ich habe ein Team von 12 Mitarbeitenden geleitet.",
+    "Ich spreche fließend Französisch.",
+    "Bei der Nordlicht AG habe ich zuvor als Vertriebsleiterin gearbeitet.",
+])
+def test_facts_that_are_neither_in_the_profile_nor_in_the_ad_never_reach_the_letter(applicant, monkeypatch, invented):
+    install_model(monkeypatch, GOOD.replace("Gerne erläutere ich", invented + " Gerne erläutere ich"))
+    result = rewrite_cover_letter(*applicant)
+    assert invented not in result.text
+    assert result.ok and result.text.strip() == GOOD.strip()
+
+
+def test_a_tool_and_a_language_from_the_profile_stay_in_the_letter(applicant, monkeypatch):
+    from core.cover_guard import prepare_cover_check, screen_prepared_letter
+
+    job, cfg = applicant
+    cfg.profile.qualifications.skills.append(SourcedText(value="Java", source="manual"))
+    prepared = prepare_cover_check(cfg, job.description, f"{job.title} {job.company}")
+    assert screen_prepared_letter("Mit Java habe ich praktische Erfahrung.", prepared).ok
+    # Ordinary German after an article is no employer, and the target company may be named.
+    assert screen_prepared_letter("Bei der Bearbeitung von Kundenanfragen arbeite ich sorgfältig.", prepared).ok
+    assert screen_prepared_letter("Für die Westnetz GmbH möchte ich meine Erfahrung einsetzen.", prepared).ok
+    # „ist“ stands in the ad („… ist erwünscht“); using the word is no claim about the person.
+    assert screen_prepared_letter("Meine Erfahrung mit SAP Business One ist dafür eine gute Grundlage.", prepared).ok
+
+
+def test_a_duty_counts_without_the_full_stop_of_its_cv_line(applicant, monkeypatch):
+    """A CV lists duties as lines that end with a full stop; inside a sentence of the letter there is none."""
+    from core.cover_letter import _assign_cover_facts, _cover_bundle, compose_cover_letter, cover_letter_reference_hits
+
+    job, cfg = applicant
+    station = cfg.profile.qualifications.work_experience[0]
+    station.responsibilities = ["Bearbeitung von Kundenanfragen und Koordination von Kundenserviceprozessen."]
+    seed = compose_cover_letter(job, cfg)
+    assert seed.ok and "Kundenserviceprozessen. zuständig" not in seed.text
+    assert "Koordination von Kundenserviceprozessen zuständig." in seed.text
+    bundle = _cover_bundle(job, cfg, "", description=seed.description_used)
+    station_fact = next(fact for fact, _ in _assign_cover_facts(list(bundle.facts)) if fact.kind == "station")
+    assert station_fact.counted_tasks == ("Bearbeitung von Kundenanfragen und Koordination von Kundenserviceprozessen",)
+    letter = GOOD.replace("Zu meinen Aufgaben gehören die Bearbeitung von Kundenanfragen und die Koordination von "
+                          "Kundenserviceprozessen.",
+                          "Zu meinen Aufgaben gehört die Bearbeitung von Kundenanfragen und Koordination von "
+                          "Kundenserviceprozessen, die ich täglich übernehme.")
+    assert letter != GOOD
+    assert cover_letter_reference_hits(letter, job, cfg, facts=list(bundle.facts)).accepted
+
+
+def test_abbreviations_keep_their_full_stop():
+    from core.cover_letter import _task_phrase
+
+    assert _task_phrase("Reklamationsbearbeitung, KPI-Reporting und Prozessverbesserung.") == \
+        "Reklamationsbearbeitung, KPI-Reporting und Prozessverbesserung"
+    assert _task_phrase("Pflege von Stammdaten, Rechnungen usw.") == "Pflege von Stammdaten, Rechnungen usw."
+    assert _task_phrase("Lieferantenkontakt u. a.") == "Lieferantenkontakt u. a."
+    assert _task_phrase("Auftragsabwicklung;") == "Auftragsabwicklung" and _task_phrase(" . ") == ""
+
+
+def test_model_is_not_loaded_when_profile_has_no_evidence(applicant, monkeypatch):
+    job, cfg = applicant
+    cfg.profile.qualifications.work_experience = []
+    monkeypatch.setattr("core.cv_llm_runtime.resolve_cv_model_path", lambda: pytest.fail("must not load"))
+    assert not rewrite_cover_letter(job, cfg).ok
+
+
+def test_missing_local_model_returns_explicit_failure(applicant, monkeypatch):
+    monkeypatch.setattr("core.cv_llm_runtime.resolve_cv_model_path", lambda: None)
+    assert rewrite_cover_letter(*applicant).reason == "model_missing"
+
+
+def test_quality_check_does_not_confuse_kundenanfragen_with_nan():
+    from guenther.intelligence.quality_loop.critic import deterministic_ready_as_is_hint
+    assert deterministic_ready_as_is_hint(body=GOOD, target_company="Westnetz", safety_ok=True)
+    assert not deterministic_ready_as_is_hint(body=GOOD + " nan ", target_company="Westnetz", safety_ok=True)
+
+
+def test_preview_rewrite_runs_in_worker_and_keeps_manual_changes(applicant, monkeypatch, qtbot):
+    from apply.preview import build_application_preview
+    from desktop.widgets.apply_preview_dialog import ApplyPreviewDialog
+    from PySide6.QtCore import QThread
+    monkeypatch.setattr("core.cover_quality.local_writer_available", lambda: False)
+    job, cfg = applicant
+    preview = build_application_preview(job, cfg)
+    dialog = ApplyPreviewDialog(preview, config=cfg, job=job)
+    qtbot.addWidget(dialog)
+    gui_thread = dialog.thread()
+    calls = []
+    def rewrite(*args):
+        calls.append(QThread.currentThread() is gui_thread)
+        return CoverRewrite(True, GOOD)
+    monkeypatch.setattr("core.cover_quality.rewrite_cover_letter", rewrite)
+    dialog._start_cover_rewrite()
+    assert not dialog.approve_btn.isEnabled()
+    assert dialog.cover_edit.toPlainText() == ""
+    assert "erstellt" in dialog.cover_edit.placeholderText()
+    qtbot.waitUntil(lambda: not dialog._rewrite_active, timeout=3000)
+    assert calls == [False]
+    assert dialog.cover_edit.toPlainText() == GOOD
+    assert dialog.preview.cover_letter_sha256
+    dialog._rewrite_seed = GOOD
+    dialog.cover_edit.setPlainText("My revised text")
+    dialog._finish_cover_rewrite(CoverRewrite(True, "A late draft"))
+    assert dialog.cover_edit.toPlainText() == "My revised text"
+    dialog.close()
+
+
+def test_failed_refinement_keeps_the_verified_draft_approvable(applicant, monkeypatch, qtbot):
+    """A refined letter that fails its check must not lock the verified draft that stays on screen."""
+    from apply.preview import build_application_preview
+    from desktop.widgets.apply_preview_dialog import ApplyPreviewDialog
+    monkeypatch.setattr("core.cover_quality.local_writer_available", lambda: False)
+    job, cfg = applicant
+    dialog = ApplyPreviewDialog(build_application_preview(job, cfg), config=cfg, job=job)
+    qtbot.addWidget(dialog)
+    draft = dialog.cover_edit.toPlainText()
+    approvable_before = dialog.approve_btn.isEnabled()
+    monkeypatch.setattr("core.cover_quality.rewrite_cover_letter", lambda *a: CoverRewrite(False, reason="writer_failed"))
+    dialog._start_cover_rewrite()
+    qtbot.waitUntil(lambda: not dialog._rewrite_active, timeout=3000)
+    assert dialog.cover_edit.toPlainText() == draft
+    assert dialog.approve_btn.isEnabled() == approvable_before
+    assert approvable_before, "the verified draft of this applicant passes its check"
+    dialog.close()
+
+
+def test_closed_preview_ignores_late_model_result(applicant, monkeypatch, qtbot):
+    from apply.preview import build_application_preview
+    from desktop.widgets.apply_preview_dialog import ApplyPreviewDialog
+    monkeypatch.setattr("core.cover_quality.local_writer_available", lambda: False)
+    job, cfg = applicant
+    dialog = ApplyPreviewDialog(build_application_preview(job, cfg), config=cfg, job=job)
+    qtbot.addWidget(dialog)
+    original = dialog.cover_edit.toPlainText()
+    dialog.reject()
+    dialog._finish_cover_rewrite(CoverRewrite(True, GOOD))
+    assert dialog.cover_edit.toPlainText() == original
+
+
+def test_missing_references_retry_contains_concrete_verified_evidence(applicant, monkeypatch):
+    calls = install_model(monkeypatch, GOOD.replace("Westfalen Service GmbH", "bisherigen Arbeitgeber"))
+    result = rewrite_cover_letter(*applicant)
+    assert not result.ok
+    assert "missing_profile_references" in result.issues
+    assert len(calls) == 2
+    assert "Fehlende Belege" in calls[1][0]["content"]
+    assert "Westfalen Service GmbH" in calls[1][0]["content"]
+    assert "required_task_phrases" in calls[1][0]["content"]
+
+
+def test_an_answer_stopped_after_the_letter_text_is_checked_like_a_full_one(applicant, monkeypatch):
+    from pathlib import Path
+
+    seen = {}
+
+    def generate(messages, **kwargs):
+        seen.update(kwargs)
+        return '{\n  "body": ' + json.dumps(GOOD, ensure_ascii=False)   # no evidence list, no closing brace
+
+    monkeypatch.setattr("core.cv_llm_runtime.resolve_cv_model_path", lambda: Path("test.gguf"))
+    monkeypatch.setattr("core.cv_llm_runtime.chat_completion_inprocess", generate)
+    result = rewrite_cover_letter(*applicant)
+    assert result.ok and result.text.strip() == GOOD.strip()
+    assert seen["answer_complete"]('{"body": "x"') and not seen["answer_complete"]('{"body": "x')
+
+
+def test_writer_facts_say_each_fact_once_and_keep_what_the_references_lack():
+    from core.contacts.writer_contract import WriterContactClaims
+    from core.cover_quality import _writer_facts_json
+
+    station = dict(label="Teamkoordinatorin", role="Teamkoordinatorin", company="Westfalen Service GmbH",
+                   period="seit 2022", tasks=["Bearbeitung von Kundenanfragen"])
+    older = dict(label="Sachbearbeiterin", role="Sachbearbeiterin", company="Beispiel AG",
+                 period="2018 – 2022", tasks=["Pflege von Stammdaten", "Rechnungsprüfung"])
+    refs = [dict(kind="station", label="Teamkoordinatorin", role="Teamkoordinatorin",
+                 company="Westfalen Service GmbH", required_task_phrases=["Bearbeitung von Kundenanfragen"],
+                 period="seit 2022"),
+            # Only one of the two tasks is a required phrase: the fact keeps the other one for the writer.
+            dict(kind="station", label="Sachbearbeiterin", role="Sachbearbeiterin", company="Beispiel AG",
+                 required_task_phrases=["Pflege von Stammdaten"], period="2018 – 2022")]
+    job = Job(id="j", source="indeed", title="Kundenservice", company="Westnetz")
+
+    payload = json.loads(_writer_facts_json(name="Mara König", job=job, facts=[station, older], reference_facts=refs,
+                                            draft="Entwurf", profile="Profil", claims=WriterContactClaims.empty()))
+    assert payload["verified_profile_facts"] == [older]
+    assert payload["required_profile_references"] == refs
+    assert payload["contact_claims"] == dict(CONTACT_VERIFIED=False, SALUTATION_ALLOWED=False,
+                                             opening_line="Sehr geehrte Damen und Herren,")
+
+    only_station = json.loads(_writer_facts_json(name="Mara König", job=job, facts=[station], reference_facts=refs,
+                                                 draft="", profile="", claims=WriterContactClaims.empty()))
+    assert "verified_profile_facts" not in only_station
+
+    verified = WriterContactClaims(CONTACT_VERIFIED=True, CONTACT_NAME="Frau Beispiel", CONTACT_ROLE="Leitung",
+                                   SALUTATION_ALLOWED=True)
+    contact = json.loads(_writer_facts_json(name="Mara König", job=job, facts=[], reference_facts=[], draft="",
+                                            profile="", claims=verified))["contact_claims"]
+    assert contact == dict(CONTACT_VERIFIED=True, SALUTATION_ALLOWED=True, opening_line="Sehr geehrte Frau Beispiel,",
+                           CONTACT_NAME="Frau Beispiel", CONTACT_ROLE="Leitung")

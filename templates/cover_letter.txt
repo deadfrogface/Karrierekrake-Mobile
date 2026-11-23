@@ -1,0 +1,12 @@
+{salutation},
+
+die {position_phrase} bei {company_bei} bietet mir die Möglichkeit, meine berufliche Erfahrung gezielt einzubringen.
+
+{experience_sentence}
+
+{skills}
+
+Gerne erläutere ich Ihnen in einem persönlichen Gespräch, wie ich Ihre Aufgaben mit meiner Erfahrung unterstützen kann.
+
+Mit freundlichen Grüßen
+{full_name}

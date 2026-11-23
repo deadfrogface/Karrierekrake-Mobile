@@ -1,0 +1,4 @@
+{
+  "name": "Karrierekrake",
+  "install": "bash .cursor/install.sh"
+}

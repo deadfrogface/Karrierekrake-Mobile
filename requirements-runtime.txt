@@ -1,0 +1,63 @@
+# Runtime dependencies for Karrierekrake desktop + search/apply.
+# Heavy optional UIs (Streamlit) are not required for the PySide6 app.
+
+rapidfuzz>=3.6.0
+httpx>=0.27.0
+# Optional cloud models with the user's own API key (core/cloud_ai.py): Claude through the official SDK.
+anthropic>=2.12,<3
+certifi>=2024.7.4
+pyyaml>=6.0
+python-dotenv>=1.0.0
+pydantic>=2.5
+playwright>=1.40
+playwright-stealth==2.0.3
+pypdf>=6.16.1
+python-docx>=1.1
+beautifulsoup4>=4.12
+# Public web search fallback; no API key or paid service.
+ddgs>=9.0,<10
+lxml>=5.0
+PySide6>=6.6
+# Local DACH geo reads the bundled GeoNames tables with the standard library (core/geo_postal_index.py).
+# pgeocode and pandas are no longer runtime dependencies. The runtime tree is pinned in constraints-runtime.txt.
+# geopy intentionally NOT a production geocoder (Nominatim policy / no silent online).
+# Floor pins for transitive deps with known High/Critical advisories when
+# resolved from loose lower bounds (OSV / pip-audit defense in depth).
+anyio>=4.14.2
+idna>=3.15
+protobuf>=5.29.6
+# Optional: Gmail / Calendar OAuth (features degrade gracefully if missing)
+google-api-python-client>=2.100.0
+google-auth-oauthlib>=1.2.0
+oauthlib>=4.0.0
+google-auth>=2.23.0
+keyring>=24.0.0
+tenacity>=8.2.0
+# Calendar scheduling engine (PR31)
+dateparser>=1.2.0
+icalendar>=5.0.0
+holidays>=0.40
+# Optional: Günther embedded local LLM + productive CV import (Qwen in-process).
+# PyPI 0.3.35 is an sdist only. This index publishes the CPU wheels, including
+# llama_cpp_python-0.3.35-py3-none-win_amd64.whl (GitHub release v0.3.35).
+# The exact version is pinned in constraints-runtime.txt. Windows
+# build-and-exe-smoke installs this file with that constraints file.
+--extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+llama-cpp-python>=0.3.0
+# Productive CV structured extract (Docpick schema + prompt; Apache-2.0).
+docpick>=0.1.3
+# Physical cores for in-process CV LLM n_threads (psutil.cpu_count logical=False).
+# Exact pin: constraints-runtime.txt. The EXE hiddenimport is in the packaging policy.
+psutil>=5.9
+# Optional: richer JSON-LD / HTML extraction for contact discovery (PR25); bs4/lxml fallback always works
+# extruct>=0.16.0
+# selectolax>=0.3.0
+# trafilatura>=1.6.0
+# Follow-up reminders ticker (PR32); stable pin only — no pre-releases
+APScheduler>=3.10.4,<4.0
+cryptography>=42.0.0
+# Google Maps / Places / Routes / Distance Matrix: NEVER add as runtime deps.
+
+# Free iCloud CalDAV and local ICS recurrence: own client (integrations/calendar/caldav), standard protocol,
+# built on httpx, lxml, icalendar and python-dateutil. No copyleft calendar libraries.
+python-dateutil>=2.9

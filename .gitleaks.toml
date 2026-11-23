@@ -1,0 +1,26 @@
+title = "Karrierekrake gitleaks"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = """
+Known non-secret trees:
+- test fixtures / fictional emails
+- local venv, node_modules, artifacts, vendored third_party
+- cover-letter optimization_cache: SHA-256 content hashes stored as JSON
+  field cache_key / evaluator_hash (deterministic offline cache keys, not API
+  credentials). Reviewed PR41 — do not broaden without justification.
+- search/indeed_api.py: the public app key of Indeed's own mobile app (the same constant the open-source JobSpy
+  project documents). It is a third party's published client identifier, not a secret of ours. This one file only.
+"""
+paths = [
+  '''(?i).*tests[/\\]fixtures[/\\]security_corpus[/\\].*''',
+  '''(?i).*tests[/\\]fixtures[/\\]fictional_emails[/\\].*''',
+  '''(?i).*[/\\]\.venv[/\\].*''',
+  '''(?i).*[/\\]node_modules[/\\].*''',
+  '''(?i).*[/\\]artifacts[/\\].*''',
+  '''(?i).*[/\\]third_party[/\\].*''',
+  '''(?i).*benchmark[/\\]cover_specialization[/\\]optimization_cache[/\\].*''',
+  '''(?i).*search[/\\]indeed_api\.py$''',
+]

@@ -1,0 +1,578 @@
+"""Search page — explicit SearchIntent editor (what do I want to find *now*?).
+
+UI binds to ``core.search_intent.SearchIntent`` only. No ranking / filter
+domain logic lives here. Profile evidence (CV skills, experience) must never
+be silently copied into intent fields.
+"""
+
+from __future__ import annotations
+
+import csv
+import io
+
+from PySide6.QtWidgets import (
+    QButtonGroup,
+    QCheckBox,
+    QComboBox,
+    QFormLayout,
+    QFrame,
+    QLineEdit,
+    QHBoxLayout,
+    QLabel,
+    QMessageBox,
+    QPushButton,
+    QRadioButton,
+    QVBoxLayout,
+    QWidget,
+)
+
+from core.search_intent import (
+    REMOTE_MODE_VALUES,
+    SearchIntent,
+    Strictness,
+    empty_search_intent,
+    parse_search_intent,
+    sync_legacy_jobs_from_intent,
+)
+from desktop.design_system.polish import apply_button_icon, footer_actions_layout, polish_interactive
+from desktop.i18n import escape_mnemonic, tr
+from desktop.services import ConfigService
+from desktop.design_system.primitives import KkButton, ButtonVariant
+from desktop.widgets.scroll_page import wrap_scrollable
+from desktop.widgets.wheel_guard import IntentionalWheelDoubleSpinBox, IntentionalWheelSpinBox
+
+
+class SearchCard(QFrame):
+    """V2 card retaining a section heading for translation."""
+    def __init__(self):
+        super().__init__()
+        self.setObjectName("KkCard")
+        self.heading = QLabel(self)
+        self.heading.setObjectName("CardTitle")
+
+    def setTitle(self, text):
+        # A QLabel shows "&" as is; only QGroupBox titles need the doubled mnemonic escape.
+        self.heading.setText(text.replace("&&", "&"))
+
+
+class CompactTerms(QLineEdit):
+    """Optional comma-separated terms without empty list boxes or add buttons."""
+    def __init__(self, placeholder, **kwargs):
+        super().__init__()
+        self.placeholder_key = placeholder
+        self.setObjectName("KkInput")
+        self.retranslate()
+
+    def retranslate(self):
+        self.setPlaceholderText(tr("search.terms_placeholder"))
+
+    def get_items(self):
+        terms = next(csv.reader([self.text()], skipinitialspace=True), [])
+        return list(dict.fromkeys(t.strip() for t in terms if t.strip()))
+
+    def set_items(self, items):
+        buffer = io.StringIO()
+        csv.writer(buffer, lineterminator="").writerow(items or [])
+        self.setText(buffer.getvalue())
+
+
+class SearchPage(QWidget):
+    """Dedicated SearchIntent surface — separate from Profile (who am I?)."""
+
+    DACH_COUNTRIES = ("DE", "AT", "CH")
+
+    def __init__(self, config_service: ConfigService, parent=None) -> None:
+        super().__init__(parent)
+        self.config_service = config_service
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        inner = QWidget()
+        layout = QVBoxLayout(inner)
+        layout.setContentsMargins(8, 8, 16, 16)
+        layout.setSpacing(14)
+        outer.addWidget(wrap_scrollable(inner))
+
+        self.page_title = QLabel()
+        self.page_title.setObjectName("PageTitle")
+        self.page_subtitle = QLabel()
+        self.page_subtitle.setObjectName("PageSubtitle")
+        self.page_subtitle.setWordWrap(True)
+        layout.addWidget(self.page_title)
+        layout.addWidget(self.page_subtitle)
+
+        # --- Roles / skills / keywords ---
+        self.roles_box = SearchCard()
+        roles_form = QFormLayout(self.roles_box)
+        roles_form.setContentsMargins(20, 16, 20, 16)
+        roles_form.setVerticalSpacing(12)
+        roles_form.addRow(self.roles_box.heading)
+        self.target_roles = CompactTerms("placeholder.job_title", visible_rows=4)
+        self.mandatory_skills = CompactTerms("placeholder.skill", visible_rows=3)
+        self.excluded_roles = CompactTerms("placeholder.exclude", visible_rows=3)
+        self.excluded_skills = CompactTerms("placeholder.exclude", visible_rows=2)
+        self.excluded_keywords = CompactTerms("placeholder.exclude", visible_rows=2)
+        self.required_keywords = CompactTerms("placeholder.add_entry", visible_rows=3)
+        self.lbl_target_roles = QLabel()
+        self.lbl_mandatory_skills = QLabel()
+        self.lbl_excluded_roles = QLabel()
+        self.lbl_excluded_skills = QLabel()
+        self.lbl_excluded_keywords = QLabel()
+        self.lbl_required_keywords = QLabel()
+        roles_form.addRow(self.lbl_target_roles, self.target_roles)
+        self.advanced_box = SearchCard()
+        advanced_form = QFormLayout(self.advanced_box)
+        advanced_form.setContentsMargins(20, 16, 20, 16)
+        advanced_form.setVerticalSpacing(12)
+        advanced_form.addRow(self.advanced_box.heading)
+        advanced_form.addRow(self.lbl_mandatory_skills, self.mandatory_skills)
+        advanced_form.addRow(self.lbl_excluded_roles, self.excluded_roles)
+        advanced_form.addRow(self.lbl_excluded_skills, self.excluded_skills)
+        advanced_form.addRow(self.lbl_excluded_keywords, self.excluded_keywords)
+        advanced_form.addRow(self.lbl_required_keywords, self.required_keywords)
+        # Further wishes the matcher already uses (boost or exclude), plus companies and ad age.
+        self.preferred_skills = CompactTerms("placeholder.skill", visible_rows=3)
+        self.preferred_industries = CompactTerms("placeholder.add_entry", visible_rows=2)
+        self.excluded_industries = CompactTerms("placeholder.exclude", visible_rows=2)
+        self.preferred_companies = CompactTerms("placeholder.add_entry", visible_rows=2)
+        self.excluded_companies = CompactTerms("placeholder.exclude", visible_rows=2)
+        self.published_within = IntentionalWheelSpinBox()
+        self.published_within.setRange(1, 100)
+        self.published_within.setMinimumWidth(110)
+        self.published_within.setMaximumWidth(160)
+        self.lbl_preferred_skills = QLabel()
+        self.lbl_preferred_industries = QLabel()
+        self.lbl_excluded_industries = QLabel()
+        self.lbl_preferred_companies = QLabel()
+        self.lbl_excluded_companies = QLabel()
+        self.lbl_published_within = QLabel()
+        advanced_form.addRow(self.lbl_preferred_skills, self.preferred_skills)
+        advanced_form.addRow(self.lbl_preferred_industries, self.preferred_industries)
+        advanced_form.addRow(self.lbl_excluded_industries, self.excluded_industries)
+        advanced_form.addRow(self.lbl_preferred_companies, self.preferred_companies)
+        advanced_form.addRow(self.lbl_excluded_companies, self.excluded_companies)
+        advanced_form.addRow(self.lbl_published_within, self.published_within)
+        layout.addWidget(self.roles_box)
+
+        # --- Work mode / geo / employment ---
+        self.conditions_box = SearchCard()
+        cond_form = QFormLayout(self.conditions_box)
+        cond_form.setContentsMargins(20, 16, 20, 16)
+        cond_form.setVerticalSpacing(12)
+        cond_form.addRow(self.conditions_box.heading)
+
+        self.remote_group = QButtonGroup(self)
+        self.remote_group.setExclusive(True)
+        self.remote_unset = QRadioButton()
+        self.remote_remote = QRadioButton()
+        self.remote_hybrid = QRadioButton()
+        self.remote_onsite = QRadioButton()
+        for i, btn in enumerate(
+            (self.remote_unset, self.remote_remote, self.remote_hybrid, self.remote_onsite)
+        ):
+            self.remote_group.addButton(btn, i)
+        remote_row = QHBoxLayout()
+        remote_row.setSpacing(16)
+        for btn in (
+            self.remote_unset,
+            self.remote_remote,
+            self.remote_hybrid,
+            self.remote_onsite,
+        ):
+            remote_row.addWidget(btn)
+        remote_row.addStretch()
+        self.lbl_remote = QLabel()
+        cond_form.addRow(self.lbl_remote, remote_row)
+
+        self.radius_km = IntentionalWheelDoubleSpinBox()
+        self.radius_km.setObjectName("KkInput")
+        self.radius_km.setRange(0, 500)
+        self.radius_km.setSuffix(" km")
+        self.radius_km.setSpecialValueText("—")
+        self.radius_km.setDecimals(0)
+        self.lbl_radius = QLabel()
+        cond_form.addRow(self.lbl_radius, self.radius_km)
+
+        self.country_de = QCheckBox("DE")
+        self.country_at = QCheckBox("AT")
+        self.country_ch = QCheckBox("CH")
+        country_row = QHBoxLayout()
+        for cb in (self.country_de, self.country_at, self.country_ch):
+            country_row.addWidget(cb)
+        country_row.addStretch()
+        self.lbl_countries = QLabel()
+        advanced_form.addRow(self.lbl_countries, country_row)
+
+        self.full_time = QCheckBox()
+        self.part_time = QCheckBox()
+        wt_row = QHBoxLayout()
+        wt_row.setSpacing(16)
+        wt_row.addWidget(self.full_time)
+        wt_row.addWidget(self.part_time)
+        wt_row.addStretch()
+        self.lbl_working_time = QLabel()
+        cond_form.addRow(self.lbl_working_time, wt_row)
+
+        # Exact part-time: weekly hours (0 = no wish) and working days.
+        self.hours_min = IntentionalWheelSpinBox()
+        self.hours_max = IntentionalWheelSpinBox()
+        for box in (self.hours_min, self.hours_max):
+            box.setRange(0, 60)
+            box.setSuffix(" h")
+            box.setMinimumWidth(90)
+        self.lbl_hours_to = QLabel()
+        hours_row = QHBoxLayout()
+        hours_row.addWidget(self.hours_min)
+        hours_row.addWidget(self.lbl_hours_to)
+        hours_row.addWidget(self.hours_max)
+        hours_row.addStretch()
+        self.lbl_hours = QLabel()
+        cond_form.addRow(self.lbl_hours, hours_row)
+        self.day_boxes: dict[str, QCheckBox] = {}
+        days_row = QHBoxLayout()
+        days_row.setSpacing(8)
+        from core.working_hours import WEEKDAYS
+
+        for day in WEEKDAYS:
+            box = QCheckBox()
+            self.day_boxes[day] = box
+            days_row.addWidget(box)
+        days_row.addStretch()
+        self.lbl_days = QLabel()
+        cond_form.addRow(self.lbl_days, days_row)
+
+        self.emp_permanent = QCheckBox()
+        self.emp_temporary = QCheckBox()
+        self.emp_contract = QCheckBox()
+        emp_row = QHBoxLayout()
+        for cb in (self.emp_permanent, self.emp_temporary, self.emp_contract):
+            emp_row.addWidget(cb)
+        emp_row.addStretch()
+        self.lbl_employment = QLabel()
+        advanced_form.addRow(self.lbl_employment, emp_row)
+
+        self.salary_min = IntentionalWheelDoubleSpinBox()
+        self.salary_min.setObjectName("KkInput")
+        self.salary_min.setRange(0, 500_000)
+        self.salary_min.setSuffix(" €")
+        self.salary_min.setSpecialValueText("—")
+        self.salary_min.setDecimals(0)
+        self.salary_min.setSingleStep(1000)
+        self.lbl_salary = QLabel()
+        cond_form.addRow(self.lbl_salary, self.salary_min)
+
+        layout.addWidget(self.conditions_box)
+
+        # --- Strictness (explicit; never invent BALANCED) ---
+        self.strictness_box = SearchCard()
+        strict_form = QFormLayout(self.strictness_box)
+        strict_form.addRow(self.strictness_box.heading)
+        self.strictness = QComboBox()
+        self.strictness.setObjectName("KkInput")
+        self.lbl_strictness = QLabel()
+        self.strictness_hint = QLabel()
+        self.strictness_hint.setObjectName("PageSubtitle")
+        self.strictness_hint.setWordWrap(True)
+        strict_form.addRow(self.lbl_strictness, self.strictness)
+        strict_form.addRow(self.strictness_hint)
+        advanced_form.addRow(self.strictness_box)
+        self.advanced_toggle = KkButton(variant=ButtonVariant.GHOST)
+        self.advanced_toggle.setCheckable(True)
+        self.advanced_toggle.toggled.connect(self.advanced_box.setVisible)
+        layout.addWidget(self.advanced_toggle)
+        layout.addWidget(self.advanced_box)
+        self.advanced_box.hide()
+
+        self.review_banner = QLabel()
+        self.review_banner.setObjectName("PageSubtitle")
+        self.review_banner.setWordWrap(True)
+        self.review_banner.setVisible(False)
+        advanced_form.addRow(self.review_banner)
+
+        self.save_btn = QPushButton()
+        self.save_btn.setObjectName("KkPrimary")
+        self.save_btn.clicked.connect(self.save)
+        polish_interactive(self.save_btn)
+        layout.addLayout(footer_actions_layout(self.save_btn))
+        layout.addStretch()
+
+        self.retranslate_ui()
+
+    def retranslate_ui(self) -> None:
+        self.page_title.setText(tr("nav.search"))
+        self.page_subtitle.setText(tr("search.subtitle"))
+        self.roles_box.setTitle(escape_mnemonic(tr("search.roles_skills")))
+        self.lbl_target_roles.setText(tr("search.roles_optional"))
+        self.advanced_toggle.setText(tr("search.advanced"))
+        self.advanced_box.setTitle(tr("search.advanced"))
+        self.lbl_mandatory_skills.setText(tr("search.mandatory_skills"))
+        self.lbl_excluded_roles.setText(tr("search.excluded_roles"))
+        self.lbl_excluded_skills.setText(tr("search.excluded_skills"))
+        self.lbl_excluded_keywords.setText(tr("search.excluded_keywords"))
+        self.lbl_required_keywords.setText(tr("search.required_keywords"))
+        self.lbl_preferred_skills.setText(tr("search.preferred_skills"))
+        self.preferred_skills.setToolTip(tr("search.preferred_skills_tip"))
+        self.lbl_preferred_industries.setText(tr("search.preferred_industries"))
+        self.lbl_excluded_industries.setText(tr("search.excluded_industries"))
+        self.lbl_preferred_companies.setText(tr("search.preferred_companies"))
+        self.lbl_excluded_companies.setText(tr("search.excluded_companies"))
+        self.lbl_published_within.setText(tr("search.published_within"))
+        self.published_within.setSuffix(tr("search.days_suffix"))
+        for editor in (
+            self.target_roles,
+            self.mandatory_skills,
+            self.excluded_roles,
+            self.excluded_skills,
+            self.excluded_keywords,
+            self.required_keywords,
+        ):
+            editor.retranslate()
+
+        self.conditions_box.setTitle(escape_mnemonic(tr("search.conditions")))
+        self.lbl_remote.setText(tr("search.remote_mode"))
+        self.remote_unset.setText(tr("search.remote_unset"))
+        self.remote_remote.setText(tr("remote"))
+        self.remote_hybrid.setText(tr("hybrid"))
+        self.remote_onsite.setText(tr("onsite"))
+        self.lbl_radius.setText(tr("search.radius"))
+        self.lbl_countries.setText(tr("search.countries"))
+        self.lbl_working_time.setText(tr("search.working_time"))
+        self.full_time.setText(tr("full_time"))
+        self.part_time.setText(tr("part_time"))
+        self.lbl_hours.setText(tr("search.weekly_hours"))
+        self.lbl_hours_to.setText(tr("search.hours_to"))
+        for box in (self.hours_min, self.hours_max):
+            box.setSpecialValueText(tr("search.hours_any"))
+            box.setToolTip(tr("search.weekly_hours_tip"))
+        self.lbl_days.setText(tr("search.work_days"))
+        for day, box in self.day_boxes.items():
+            box.setText(tr(f"search.day_{day}"))
+            box.setToolTip(tr("search.work_days_tip"))
+        self.lbl_employment.setText(tr("search.employment_types"))
+        self.emp_permanent.setText(tr("search.emp_permanent"))
+        self.emp_temporary.setText(tr("search.emp_temporary"))
+        self.emp_contract.setText(tr("search.emp_contract"))
+        self.lbl_salary.setText(tr("search.salary_min"))
+
+        self.strictness_box.setTitle(tr("search.strictness"))
+        self.lbl_strictness.setText(tr("search.strictness_label"))
+        self.strictness_hint.setText(tr("search.strictness_hint"))
+        current = self.strictness.currentData()
+        self.strictness.blockSignals(True)
+        self.strictness.clear()
+        self.strictness.addItem(tr("search.strictness_unset"), None)
+        self.strictness.addItem(tr("search.strictness_strict"), Strictness.STRICT.value)
+        self.strictness.addItem(tr("search.strictness_balanced"), Strictness.BALANCED.value)
+        self.strictness.addItem(tr("search.strictness_explore"), Strictness.EXPLORE.value)
+        idx = self.strictness.findData(current)
+        self.strictness.setCurrentIndex(idx if idx >= 0 else 0)
+        self.strictness.blockSignals(False)
+
+        self.save_btn.setText(tr("btn.save_search"))
+        apply_button_icon(self.save_btn, "save", color="#ffffff")
+
+    def _resolve_intent(self, profile) -> SearchIntent:
+        raw = getattr(profile, "search_intent", None)
+        if raw is None:
+            return empty_search_intent()
+        if hasattr(raw, "model_dump"):
+            return raw  # type: ignore[return-value]
+        if isinstance(raw, dict):
+            return parse_search_intent(raw)
+        return empty_search_intent()
+
+    def load_from_config(self) -> None:
+        cfg = self.config_service.load()
+        intent = self._resolve_intent(cfg.profile)
+        self.target_roles.set_items(list(intent.target_roles or []))
+        self.mandatory_skills.set_items(list(intent.mandatory_skills or []))
+        self.excluded_roles.set_items(list(intent.excluded_roles or []))
+        self.excluded_skills.set_items(list(intent.excluded_skills or []))
+        self.excluded_keywords.set_items(list(intent.excluded_keywords or []))
+        self.required_keywords.set_items(list(intent.required_keywords or []))
+        self.preferred_skills.set_items(list(intent.preferred_skills or []))
+        self.preferred_industries.set_items(list(intent.preferred_industries or []))
+        self.excluded_industries.set_items(list(intent.excluded_industries or [])
+                                           or list(cfg.profile.jobs.excluded_industries or []))
+        self.preferred_companies.set_items(list(cfg.profile.filters.preferred_companies or []))
+        self.excluded_companies.set_items(list(cfg.profile.filters.excluded_companies or []))
+        self.published_within.setValue(int(getattr(cfg.settings, "published_within_days", 14) or 14))
+
+        mode = (intent.remote_mode or "").strip().lower()
+        mapping = {
+            "": self.remote_unset,
+            "remote": self.remote_remote,
+            "hybrid": self.remote_hybrid,
+            "onsite": self.remote_onsite,
+            "flexible": self.remote_unset,
+        }
+        btn = mapping.get(mode, self.remote_unset)
+        btn.setChecked(True)
+
+        if intent.radius_km is None:
+            self.radius_km.setValue(0)
+        else:
+            self.radius_km.setValue(float(intent.radius_km))
+
+        countries = {c.upper() for c in (intent.countries or [])}
+        self.country_de.setChecked("DE" in countries)
+        self.country_at.setChecked("AT" in countries)
+        self.country_ch.setChecked("CH" in countries)
+
+        wt = {w.casefold() for w in (intent.working_time or [])}
+        self.full_time.setChecked("full_time" in wt)
+        self.part_time.setChecked("part_time" in wt)
+        employment = cfg.profile.employment
+        self.hours_min.setValue(int(getattr(employment, "weekly_hours_min", 0) or 0))
+        self.hours_max.setValue(int(getattr(employment, "weekly_hours_max", 0) or 0))
+        chosen_days = {str(d).lower()[:2] for d in (getattr(employment, "work_days", None) or [])}
+        for day, box in self.day_boxes.items():
+            box.setChecked(day in chosen_days)
+
+        emp = {e.casefold() for e in (intent.employment_types or [])}
+        self.emp_permanent.setChecked("permanent" in emp or "unbefristet" in emp)
+        self.emp_temporary.setChecked("temporary" in emp)
+        self.emp_contract.setChecked("contract" in emp)
+
+        if intent.salary_min is None:
+            self.salary_min.setValue(0)
+        else:
+            self.salary_min.setValue(float(intent.salary_min))
+
+        strict_val = intent.strictness.value if intent.strictness else None
+        idx = self.strictness.findData(strict_val)
+        self.strictness.setCurrentIndex(idx if idx >= 0 else 0)
+
+        review = list(intent.needs_user_review or [])
+        active = sum(bool(value) for value in (intent.mandatory_skills, intent.excluded_roles, intent.excluded_skills, intent.excluded_keywords, intent.required_keywords, intent.employment_types, intent.countries, intent.strictness))
+        self.advanced_toggle.setText(tr("search.advanced") + (tr("search.active_filters", count=active) if active else ""))
+        if review:
+            self.review_banner.setText(
+                tr("search.needs_review") + "\n• " + "\n• ".join(review[:8])
+            )
+            self.review_banner.setVisible(True)
+        else:
+            self.review_banner.clear()
+            self.review_banner.setVisible(False)
+
+    def collect_intent(self) -> SearchIntent:
+        """Build SearchIntent from widgets — no silent STRICT expansion."""
+        remote_mode = None
+        if self.remote_remote.isChecked():
+            remote_mode = "remote"
+        elif self.remote_hybrid.isChecked():
+            remote_mode = "hybrid"
+        elif self.remote_onsite.isChecked():
+            remote_mode = "onsite"
+        if remote_mode is not None and remote_mode not in REMOTE_MODE_VALUES:
+            remote_mode = None
+
+        countries: list[str] = []
+        if self.country_de.isChecked():
+            countries.append("DE")
+        if self.country_at.isChecked():
+            countries.append("AT")
+        if self.country_ch.isChecked():
+            countries.append("CH")
+
+        working_time: list[str] = []
+        if self.full_time.isChecked():
+            working_time.append("full_time")
+        if self.part_time.isChecked():
+            working_time.append("part_time")
+
+        employment_types: list[str] = []
+        if self.emp_permanent.isChecked():
+            employment_types.append("permanent")
+        if self.emp_temporary.isChecked():
+            employment_types.append("temporary")
+        if self.emp_contract.isChecked():
+            employment_types.append("contract")
+
+        radius_val = float(self.radius_km.value())
+        radius_km = None if radius_val <= 0 else radius_val
+        salary_val = float(self.salary_min.value())
+        salary_min = None if salary_val <= 0 else salary_val
+
+        strict_data = self.strictness.currentData()
+        strictness = None
+        if strict_data:
+            strictness = Strictness(str(strict_data))
+
+        # Preserve review flags from existing intent except conflicts recompute.
+        cfg = self.config_service.load()
+        existing = self._resolve_intent(cfg.profile)
+        preserved_review = [
+            f
+            for f in (existing.needs_user_review or [])
+            if not str(f).startswith("conflict:")
+        ]
+
+        return SearchIntent(
+            target_roles=self.target_roles.get_items(),
+            mandatory_skills=self.mandatory_skills.get_items(),
+            excluded_roles=self.excluded_roles.get_items(),
+            excluded_skills=self.excluded_skills.get_items(),
+            excluded_keywords=self.excluded_keywords.get_items(),
+            required_keywords=self.required_keywords.get_items(),
+            preferred_skills=self.preferred_skills.get_items(),
+            preferred_industries=self.preferred_industries.get_items(),
+            excluded_industries=self.excluded_industries.get_items(),
+            required_roles=list(existing.required_roles or []),
+            remote_mode=remote_mode,
+            countries=countries,
+            radius_km=radius_km,
+            working_time=working_time,
+            employment_types=employment_types,
+            salary_min=salary_min,
+            strictness=strictness,
+            needs_user_review=preserved_review,
+            legacy_fields_deprecated=list(existing.legacy_fields_deprecated or []),
+        )
+
+    def save(self) -> None:
+        cfg = self.config_service.load()
+        intent = self.collect_intent()
+        cfg.profile.search_intent = intent
+        # Dual-write clearly mapped mirrors for pre-cutover readers (no invention).
+        sync_legacy_jobs_from_intent(intent, cfg.profile.jobs)
+        loc = cfg.profile.location
+        emp = cfg.profile.employment
+        if intent.radius_km is not None:
+            loc.max_distance_km = float(intent.radius_km)
+        if intent.countries:
+            # Keep primary residence country if single; else leave location.country.
+            if len(intent.countries) == 1:
+                loc.country = intent.countries[0]
+        if intent.salary_min is not None:
+            emp.minimum_salary = float(intent.salary_min)
+        emp.full_time = "full_time" in intent.working_time
+        emp.part_time = "part_time" in intent.working_time
+        low, high = int(self.hours_min.value()), int(self.hours_max.value())
+        if low and high and low > high:
+            low, high = high, low
+        emp.weekly_hours_min, emp.weekly_hours_max = low, high
+        emp.work_days = [day for day, box in self.day_boxes.items() if box.isChecked()]
+        emp.remote = intent.remote_mode == "remote"
+        emp.hybrid = intent.remote_mode == "hybrid"
+        emp.onsite = intent.remote_mode == "onsite"
+        excl = list(intent.excluded_keywords or [])
+        cfg.profile.filters.exclusion_keywords = excl
+        cfg.profile.jobs.excluded_industries = list(intent.excluded_industries or [])
+        cfg.profile.jobs.desired_industries = list(intent.preferred_industries or [])
+        cfg.profile.filters.preferred_companies = self.preferred_companies.get_items()
+        cfg.profile.filters.excluded_companies = self.excluded_companies.get_items()
+        cfg.settings.published_within_days = int(self.published_within.value())
+
+        errors = self.config_service.validate(cfg)
+        if errors:
+            QMessageBox.warning(self, tr("nav.search"), "\n".join(errors))
+            return
+        if not intent.target_roles:
+            cfg.settings.search_mode = "profile_discovery"
+        self.config_service.save(cfg)
+        self.load_from_config()
+        QMessageBox.information(self, tr("nav.search"), tr("search.saved"))
+
+    def refresh(self) -> None:
+        self.load_from_config()

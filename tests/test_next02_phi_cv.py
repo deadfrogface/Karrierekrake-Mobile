@@ -1,0 +1,286 @@
+"""NEXT-02 production gates: sole Phi for WRITE, no Phi on CV import."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from unittest.mock import MagicMock
+import warnings
+
+import pytest
+
+from core.cv_extract import extract_text
+from core.cv_intelligence import import_cv_canonical, reconcile_phi_into_parsed
+from guenther.contracts import CVExtractSuggestion, ConfidenceLevel
+from guenther.fallbacks import fallback_envelope, map_status_to_unavailable_reason
+from guenther.hardware import HardwareTier, detect_hardware, graceful_model_fallback, resolve_production_model
+from guenther.intelligence.routing import ArchitectureMode, resolve_model_for_capability
+from guenther.model_manager import (
+    HISTORICAL_MODEL_CATALOG,
+    MODEL_CATALOG,
+    PRODUCTION_MODEL_ID,
+    ModelManager,
+    is_production_model,
+)
+from guenther.provider import ProviderStatus
+from guenther.service import GuentherService
+from guenther.validation import validate_cv_extract
+
+
+PHI_SHA = "01999f17c39cc3074afae5e9c539bc82d45f2dd7faa3917c66cbef76fce8c0c2"
+PHI_FILE = "microsoft_Phi-4-mini-instruct-Q4_K_M.gguf"
+QWEN_SHA = "00fe7986ff5f6b463e62455821146049db6f9313603938a70800d1fb69ef11a4"
+QWEN_FILE = "Qwen3.5-4B-Q4_K_M.gguf"
+
+
+def test_exactly_one_production_llm():
+    assert list(MODEL_CATALOG.keys()) == [PRODUCTION_MODEL_ID]
+    assert PRODUCTION_MODEL_ID == "qwen3.5-4b"
+    meta = MODEL_CATALOG[PRODUCTION_MODEL_ID]
+    assert meta["filename"] == QWEN_FILE
+    assert meta["sha256"] == QWEN_SHA
+    assert meta["quant"] == "Q4_K_M"
+    assert meta["base_model"] == "Qwen/Qwen3.5-4B"
+    assert meta.get("production") is True
+
+
+def test_qwen_absent_from_production_catalog():
+    # Older Qwen3-* ids stay historical; sole production is Qwen3.5-4B.
+    assert "qwen3-1.7b" not in MODEL_CATALOG
+    assert "qwen3-4b" not in MODEL_CATALOG
+    assert "phi4-mini" not in MODEL_CATALOG
+    assert "phi4-mini" in HISTORICAL_MODEL_CATALOG
+    assert "qwen3-1.7b" in HISTORICAL_MODEL_CATALOG
+    assert HISTORICAL_MODEL_CATALOG["qwen3-1.7b"].get("production") is False
+    assert not is_production_model("qwen3-1.7b")
+    assert not is_production_model("phi4-mini")
+
+
+def test_model_manager_rejects_historical_install(tmp_path):
+    mm = ModelManager(tmp_path / "models")
+    prog = mm.install("qwen3-1.7b", allow_download=False)
+    assert prog.status == "error"
+    assert prog.message in {"unknown_model", "historical_model_forbidden", "not_a_production_model"}
+    ok, reason = mm.can_install("qwen3-1.7b")
+    assert not ok
+    assert reason in {"unknown_model", "historical_model_forbidden", "not_a_production_model"}
+
+
+def test_no_model_fallback_on_light_hardware(monkeypatch, tmp_path):
+    monkeypatch.setenv("KARRIEREKRAKE_RAM_GB", "4")
+    # The model the developer chose in their own setup must not decide this test.
+    monkeypatch.setenv("KARRIEREKRAKE_MODELS_DIR", str(tmp_path / "models"))
+    assert resolve_production_model("qwen3-1.7b") == "qwen3.5-4b"
+    assert graceful_model_fallback(HardwareTier.LIGHT, "phi4-mini") == "qwen3.5-4b"
+    assert graceful_model_fallback(HardwareTier.LIGHT, "auto") == "qwen3.5-4b"
+    assert graceful_model_fallback(HardwareTier.LIGHT, "qwen3-4b") == "qwen3.5-4b"
+    hw = detect_hardware()
+    assert hw.recommended_model_id == "qwen3.5-4b"
+
+
+def test_routing_always_phi():
+    for mode in ArchitectureMode:
+        for cap in ("cv_extract", "writing", "email_class"):
+            d = resolve_model_for_capability(
+                architecture=mode, capability=cap, model_pref="qwen3-1.7b"
+            )
+            assert d.model_id == "qwen3.5-4b"
+            d2 = resolve_model_for_capability(
+                architecture=mode, capability=cap, model_pref="auto"
+            )
+            assert d2.model_id == "qwen3.5-4b"
+
+
+def test_guenther_unavailable_no_heuristic_substitute(tmp_path, monkeypatch):
+    monkeypatch.setenv("KARRIEREKRAKE_MODELS_DIR", str(tmp_path / "models"))
+    svc = GuentherService(enabled=True, model="auto", allow_heuristic_when_no_llm=False)
+    env = svc.suggest_cv_extract("Max Mustermann\nBerufserfahrung\nBuchhalter bei Beispiel GmbH")
+    assert not env.ok
+    assert "GUENTHER_UNAVAILABLE" in " ".join(env.safety_notes) or env.fallback_reason.startswith(
+        "guenther_unavailable"
+    )
+    assert "no_model_fallback" in env.safety_notes
+
+
+def test_unavailable_reason_mapping():
+    assert "insufficient_ram" in map_status_to_unavailable_reason(ProviderStatus.OOM)
+    assert "model_missing" in map_status_to_unavailable_reason(ProviderStatus.MODEL_MISSING)
+    assert "model_corrupted" in map_status_to_unavailable_reason(
+        ProviderStatus.ERROR, detail="checksum_mismatch"
+    )
+    env = fallback_envelope("cv_extract", reason="model_missing")
+    assert not env.ok
+    assert env.fallback_reason.startswith("guenther_unavailable") or "model" in env.fallback_reason
+
+
+def test_cv_grounding_drops_invented():
+    model = CVExtractSuggestion(
+        skills=["Python", "InventedSkillXYZ"],
+        experience_titles=["Buchhalter", "MadeUpTitle"],
+        education=["Ausbildung Kaufmann", "Fake Uni"],
+        certificates=["DATEV", "FakeCert"],
+        languages=["Deutsch", "Klingonisch"],
+        confidence=ConfidenceLevel.HIGH,
+    )
+    cv = "Buchhalter bei Firma\nAusbildung Kaufmann\nDATEV\nDeutsch\nPython"
+    out, notes = validate_cv_extract(model, cv_text=cv)
+    assert "Python" in out.skills
+    assert "InventedSkillXYZ" not in out.skills
+    assert "Buchhalter" in out.experience_titles
+    assert "MadeUpTitle" not in out.experience_titles
+    assert out.invented_flag
+    assert any("dropped" in n for n in notes)
+
+
+def test_reconcile_phi_fills_gaps_only_when_grounded():
+    """Historical helper still grounds; production import never calls it."""
+    parsed = {
+        "skills": [],
+        "work_experience": [],
+        "education": [],
+        "certificates": [],
+        "languages": [],
+        "experience_lines": [],
+        "confidence": {},
+    }
+    cv = "Berufserfahrung\nSachbearbeiter bei Muster AG\nAusbildung Industriekaufmann"
+    suggestion = {
+        "skills": [],
+        "experience_titles": ["Sachbearbeiter", "NotInText"],
+        "education": ["Ausbildung Industriekaufmann"],
+        "certificates": [],
+        "languages": [],
+        "_model_id": "qwen3.5-4b",
+    }
+    out = reconcile_phi_into_parsed(parsed, suggestion, cv_text=cv)
+    titles = [w["title"] for w in out["work_experience"]]
+    assert "Sachbearbeiter" in titles
+    assert "NotInText" not in titles
+    assert out["education"]
+    assert out.get("phi_model_id") == "qwen3.5-4b"
+
+
+def test_import_cv_canonical_never_calls_phi_extract(tmp_path, monkeypatch):
+    """Production CV import must ignore guenther_enabled and never call PHI_EXTRACT."""
+    cv_path = tmp_path / "cv.txt"
+    cv_path.write_text(
+        "Max Beispiel\nBerufserfahrung\nBuchhalterin bei Demo GmbH 2020-2024\n"
+        "Ausbildung\nIndustriekauffrau IHK\n",
+        encoding="utf-8",
+    )
+
+    def _fake_docpick(path):
+        return {
+            "source_path": str(path),
+            "pipeline": "docpick_qwen35_4b",
+            "intelligence_status": "docpick_qwen35",
+            "phi_invoked": False,
+            "phi_extract_call_count": 0,
+            "work_experience": [{"title": "Buchhalterin", "company": "Demo GmbH"}],
+            "education": [{"qualification": "Industriekauffrau IHK"}],
+            "skills": [],
+        }
+
+    monkeypatch.setattr("core.cv_docpick_import.import_cv_docpick", _fake_docpick)
+    mock = MagicMock()
+    mock.suggest_cv_extract.return_value = MagicMock(
+        ok=True,
+        validated=True,
+        provider_status="ready",
+        fallback_reason="",
+        model_id="qwen3.5-4b",
+        safety_notes=[],
+        suggestion={
+            "skills": [],
+            "experience_titles": ["Buchhalterin"],
+            "education": ["Industriekauffrau IHK"],
+            "certificates": [],
+            "languages": [],
+        },
+    )
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        parsed = import_cv_canonical(
+            cv_path, guenther_enabled=True, guenther_service=mock
+        )
+    assert parsed["intelligence_status"] == "docpick_qwen35"
+    assert parsed.get("phi_invoked") is False
+    assert parsed.get("phi_extract_call_count") == 0
+    mock.suggest_cv_extract.assert_not_called()
+    assert any(issubclass(w.category, DeprecationWarning) for w in caught)
+
+
+def test_import_cv_canonical_missing_model_still_parses(tmp_path, monkeypatch):
+    """Missing Phi model must not block Docpick import; extract must not be called."""
+    cv_path = tmp_path / "cv.txt"
+    cv_path.write_text(
+        "Berufserfahrung\nVerkäufer bei Shop GmbH\nAusbildung\nVerkäufer\n",
+        encoding="utf-8",
+    )
+
+    def _fake_docpick(path):
+        return {
+            "source_path": str(path),
+            "pipeline": "docpick_qwen35_4b",
+            "intelligence_status": "docpick_qwen35",
+            "phi_invoked": False,
+            "phi_extract_call_count": 0,
+            "work_experience": [{"title": "Verkäufer", "company": "Shop GmbH"}],
+            "education": [{"qualification": "Verkäufer"}],
+            "skills": [],
+        }
+
+    monkeypatch.setattr("core.cv_docpick_import.import_cv_docpick", _fake_docpick)
+    mock = MagicMock()
+    mock.suggest_cv_extract.return_value = MagicMock(
+        ok=False,
+        validated=False,
+        provider_status="model_missing",
+        fallback_reason="guenther_unavailable_model_missing",
+        model_id="qwen3.5-4b",
+        safety_notes=["GUENTHER_UNAVAILABLE", "no_model_fallback"],
+        suggestion={},
+    )
+    with warnings.catch_warnings(record=True):
+        warnings.simplefilter("always")
+        parsed = import_cv_canonical(
+            cv_path, guenther_enabled=True, guenther_service=mock
+        )
+    assert parsed["intelligence_status"] == "docpick_qwen35"
+    assert parsed.get("phi_extract_call_count") == 0
+    mock.suggest_cv_extract.assert_not_called()
+    assert "work_experience" in parsed
+
+
+def test_docx_tables_extracted(tmp_path):
+    pytest.importorskip("docx")
+    from docx import Document
+
+    path = tmp_path / "table_cv.docx"
+    doc = Document()
+    doc.add_paragraph("Lebenslauf")
+    table = doc.add_table(rows=2, cols=2)
+    table.rows[0].cells[0].text = "Berufserfahrung"
+    table.rows[0].cells[1].text = "Buchhalter — Beispiel AG"
+    table.rows[1].cells[0].text = "Ausbildung"
+    table.rows[1].cells[1].text = "Industriekaufmann IHK"
+    doc.save(path)
+    text = extract_text(path)
+    assert "Buchhalter" in text
+    assert "Industriekaufmann" in text
+    assert "Berufserfahrung" in text
+
+
+def test_settings_defaults_phi_only():
+    from core.config import SettingsConfig
+
+    s = SettingsConfig()
+    assert s.guenther_model == "qwen3.5-4b"
+    assert s.guenther_heuristic_fallback is False
+    assert s.guenther_enabled is True
+
+
+def test_private_cvs_gitignore():
+    gi = (Path(__file__).resolve().parents[1] / ".gitignore").read_text(encoding="utf-8")
+    assert "private/" in gi
+    assert "*.pdf" in gi
+    assert "*.docx" in gi

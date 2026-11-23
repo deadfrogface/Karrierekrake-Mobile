@@ -1,0 +1,64 @@
+location:
+  # Set your address in the app (Profil) or here for local use — not committed as secrets.
+  home_address: ""
+  max_distance_km: 20
+  allow_remote_germany: true
+  allow_hybrid: true
+  country: "DE"
+
+jobs:
+  desired_titles: []
+  alternative_titles: []
+  unwanted_titles: []
+  desired_industries: []
+  excluded_industries: []
+
+employment:
+  full_time: true
+  part_time: false
+  remote: true
+  hybrid: true
+  onsite: true
+  minimum_salary: null
+
+# Leave qualifications empty until the user enters them or imports a CV.
+# Never ship fake demo skills/languages here — they affect matching.
+qualifications:
+  education: []
+  work_experience: []
+  skills: []
+  software: []
+  driving_license: []
+  languages: []
+  certificates: []
+
+filters:
+  desired_keywords: []
+  exclusion_keywords: []
+  preferred_companies: []
+  excluded_companies: []
+
+# PR22 SearchIntent — source of truth for "what to find". Empty = not configured.
+# Legacy jobs.* fields above remain for dual-read during migration; do not invent
+# strictness defaults here (null until the user chooses STRICT/BALANCED/EXPLORE).
+search_intent:
+  schema_version: 1
+  target_roles: []
+  required_roles: []
+  excluded_roles: []
+  mandatory_skills: []
+  preferred_skills: []
+  excluded_skills: []
+  required_keywords: []
+  excluded_keywords: []
+  preferred_industries: []
+  excluded_industries: []
+  strictness: null
+  remote_mode: null
+  employment_types: []
+  working_time: []
+  salary_min: null
+  countries: []
+  radius_km: null
+  needs_user_review: []
+  legacy_fields_deprecated: []
