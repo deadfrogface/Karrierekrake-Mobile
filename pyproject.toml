@@ -1,0 +1,59 @@
+# Karrierekrake as a phone app (Android + iOS) with BeeWare: Briefcase builds it, Toga draws native controls.
+# The Python core (core/, search/, integrations/, guenther/) is the same as on the desktop.
+#   briefcase dev                      # try it on the computer
+#   briefcase create android && briefcase build android && briefcase run android
+#   briefcase create iOS && briefcase build iOS && briefcase run iOS      (needs a Mac with Xcode)
+
+[tool.briefcase]
+project_name = "Karrierekrake"
+bundle = "de.karrierekrake"
+version = "0.1.0"
+license.file = "LICENSE"
+author = "Karrierekrake"
+
+[tool.briefcase.app.karrierekrake_app]
+formal_name = "Karrierekrake"
+description = "Bewerbungsassistent: Jobs finden, geprüfte Anschreiben, Bewerbungen im Blick."
+long_description = """Karrierekrake sucht Jobs bei der Bundesagentur für Arbeit, erklärt die Passung, schreibt
+Anschreiben ohne erfundene Angaben und behält Bewerbungen, Antworten und Fristen im Blick."""
+icon = "assets/brand/icons/icon"
+sources = [
+    "src/karrierekrake_app",
+    "core",
+    "search",
+    "integrations",
+    "guenther",
+]
+test_sources = ["tests_mobile"]
+requires = [
+    "httpx>=0.27",
+    "requests>=2.31",
+    "certifi",
+    "beautifulsoup4>=4.12",
+    "pyyaml>=6.0",
+    "python-dotenv>=1.0",
+    "python-dateutil>=2.9",
+    "pypdf>=6.16.1",
+    "keyring>=24",
+]
+test_requires = ["pytest"]
+
+[tool.briefcase.app.karrierekrake_app.android]
+requires = ["toga-android~=0.5.0"]
+base_theme = "Theme.MaterialComponents.Light.DarkActionBar"
+build_gradle_dependencies = [
+    "com.google.android.material:material:1.12.0",
+]
+permission.INTERNET = true
+
+[tool.briefcase.app.karrierekrake_app.iOS]
+requires = ["toga-iOS~=0.5.0"]
+
+[tool.briefcase.app.karrierekrake_app.linux]
+requires = ["toga-gtk~=0.5.0"]
+
+[tool.briefcase.app.karrierekrake_app.macOS]
+requires = ["toga-cocoa~=0.5.0"]
+
+[tool.briefcase.app.karrierekrake_app.windows]
+requires = ["toga-winforms~=0.5.0"]

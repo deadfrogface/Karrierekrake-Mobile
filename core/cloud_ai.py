@@ -265,9 +265,55 @@ def _anthropic_errors(call):
         raise CloudAiError("network", type(exc).__name__) from exc
 
 
+def _sdk_available() -> bool:
+    import importlib.util
+
+    return importlib.util.find_spec("anthropic") is not None
+
+
+def _anthropic_http(key: str, method: str, path: str, payload: dict | None, *, timeout: float) -> dict:
+    """Claude over plain HTTPS (phone app, where the SDK and its compiled parts are not shipped)."""
+    import httpx
+
+    headers = {"x-api-key": key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            response = client.request(method, "https://api.anthropic.com/v1" + path, headers=headers, json=payload)
+    except httpx.HTTPError as exc:
+        raise CloudAiError("network", type(exc).__name__) from exc
+    if response.status_code in (401, 403):
+        raise CloudAiError("auth", str(response.status_code))
+    if response.status_code == 404:
+        raise CloudAiError("model", "404")
+    if response.status_code == 429:
+        raise CloudAiError("rate_limit", "429")
+    if response.status_code == 402:
+        raise CloudAiError("quota", "402")
+    if response.status_code >= 400:
+        raise CloudAiError("bad_response", f"http_{response.status_code}")
+    try:
+        return response.json()
+    except ValueError as exc:
+        raise CloudAiError("bad_response", "not_json") from exc
+
+
 def _anthropic_chat(key: str, model: str, messages: list[dict[str, str]], *, timeout: float) -> str:
     system = "\n\n".join(m["content"] for m in messages if m.get("role") == "system")
     turns = [{"role": m["role"], "content": m["content"]} for m in messages if m.get("role") in ("user", "assistant")]
+    if not _sdk_available():
+        payload: dict[str, Any] = {"model": model, "max_tokens": 16000, "messages": turns}
+        if system:
+            payload["system"] = system
+        data = _anthropic_http(key, "POST", "/messages", payload, timeout=timeout)
+        stop = data.get("stop_reason")
+        if stop == "refusal":
+            raise CloudAiError("refused", "")
+        if stop == "max_tokens":
+            raise CloudAiError("truncated", "max_tokens")
+        text = "".join(b.get("text", "") for b in data.get("content", []) if isinstance(b, dict) and b.get("type") == "text")
+        if not text.strip():
+            raise CloudAiError("bad_response", "empty")
+        return text
     client = _anthropic_client(key, timeout)
     kwargs: dict[str, Any] = {"model": model, "max_tokens": 16000, "messages": turns}
     if system:
@@ -294,7 +340,10 @@ def _anthropic_chat(key: str, model: str, messages: list[dict[str, str]], *, tim
 def list_models(provider_id: str, key: str, *, timeout: float = 30.0) -> list[str]:
     """Model names the key can use, from the provider itself (also proves that the key works)."""
     provider = PROVIDERS[provider_id]
-    if provider.api_style == "anthropic":
+    if provider.api_style == "anthropic" and not _sdk_available():
+        data = _anthropic_http(key, "GET", "/models?limit=100", None, timeout=timeout)
+        ids = [str(item.get("id")) for item in data.get("data", []) if isinstance(item, dict) and item.get("id")]
+    elif provider.api_style == "anthropic":
         client = _anthropic_client(key, timeout)
         ids = _anthropic_errors(lambda: [model.id for model in client.models.list()])
     else:
