@@ -1,0 +1,18 @@
+{
+  "project": "Karrierekrake",
+  "stage": "In Arbeit",
+  "updated": "2026-11-27T09:02:00.000Z",
+  "now": "Mobile Version von Karrierekrake (vereinfachte Oberfläche, ohne lokales Modell).",
+  "next": [],
+  "blockers": [],
+  "tagline": "Karrierekrake fürs Handy: vereinfachte Oberfläche, ohne lokales KI-Modell.",
+  "color": "#3f7a55",
+  "icon": "assets/brand/icons/icon-256.png",
+  "log": [
+    {
+      "date": "2026-11-27",
+      "summary": "Statusdatei für DFF Studios angelegt (Stand, nächste Schritte, Aussehen).",
+      "by": "Claude Code"
+    }
+  ]
+}
